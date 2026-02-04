@@ -18,35 +18,36 @@ Tairseach is the macOS system bridge for OpenClaw agents. It provides:
 3. **MCP Server** — Model Context Protocol server for efficient agent ↔ OpenClaw communication
 4. **Context Monitor** — Real-time token usage tracking (like CodexBar)
 5. **Agent Profiles** — Visual identity management for agents
+6. **Auth Broker** — Persistent OAuth session management for CLI tools (GOG, etc.)
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Tairseach.app                        │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │                 Tauri Shell                       │   │
-│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  │   │
-│  │  │ Rust Core  │  │ MCP Server │  │ Permission │  │   │
-│  │  │ (Commands) │  │ (Built-in) │  │   Bridge   │  │   │
-│  │  └────────────┘  └────────────┘  └────────────┘  │   │
-│  │                       ↓                           │   │
-│  │  ┌────────────────────────────────────────────┐  │   │
-│  │  │           WebView Frontend                  │  │   │
-│  │  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐  │  │   │
-│  │  │  │Dash │ │Perm │ │Conf │ │Mon  │ │Prof │  │  │   │
-│  │  │  │board│ │iss- │ │ig   │ │itor │ │iles │  │  │   │
-│  │  │  │     │ │ions │ │     │ │     │ │     │  │  │   │
-│  │  │  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘  │  │   │
-│  │  └────────────────────────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-         │                    │                    │
-         ▼                    ▼                    ▼
-   ~/.tairseach/      ~/.openclaw.json     OpenClaw Gateway
-   (logs, assets)      (config)            (localhost:18789)
+┌──────────────────────────────────────────────────────────────────┐
+│                        Tairseach.app                              │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                      Tauri Shell                            │  │
+│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │  │
+│  │  │ Rust Core  │ │ MCP Server │ │ Permission │ │  Auth    │ │  │
+│  │  │ (Commands) │ │ (Built-in) │ │   Bridge   │ │  Broker  │ │  │
+│  │  └────────────┘ └────────────┘ └────────────┘ └──────────┘ │  │
+│  │                        ↓                                    │  │
+│  │  ┌──────────────────────────────────────────────────────┐  │  │
+│  │  │              WebView Frontend                         │  │  │
+│  │  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐    │  │  │
+│  │  │  │Dash │ │Perm │ │Conf │ │Mon  │ │Prof │ │Auth │    │  │  │
+│  │  │  │board│ │iss- │ │ig   │ │itor │ │iles │ │     │    │  │  │
+│  │  │  │     │ │ions │ │     │ │     │ │     │ │     │    │  │  │
+│  │  │  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘    │  │  │
+│  │  └──────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+         │                    │                    │            │
+         ▼                    ▼                    ▼            ▼
+   ~/.tairseach/      ~/.openclaw.json     OpenClaw       CLI Tools
+   (logs, tokens)      (config)            Gateway        (gog, etc.)
 ```
 
 ---
@@ -98,9 +99,14 @@ tairseach/
 │   │   ├── monitor/           # Context usage tracking
 │   │   │   ├── mod.rs
 │   │   │   └── usage.rs
-│   │   └── profiles/          # Agent profile management
+│   │   ├── profiles/          # Agent profile management
+│   │   │   ├── mod.rs
+│   │   │   └── storage.rs
+│   │   └── auth/              # OAuth broker
 │   │       ├── mod.rs
-│   │       └── storage.rs
+│   │       ├── tokens.rs      # Token storage & refresh
+│   │       ├── google.rs      # Google OAuth flow
+│   │       └── proxy.rs       # CLI passthrough
 │   └── icons/                 # App icons
 │
 ├── src/                       # Vue frontend
@@ -112,13 +118,15 @@ tairseach/
 │   │   ├── permissions.ts
 │   │   ├── config.ts
 │   │   ├── monitor.ts
-│   │   └── profiles.ts
+│   │   ├── profiles.ts
+│   │   └── auth.ts
 │   ├── views/
 │   │   ├── DashboardView.vue
 │   │   ├── PermissionsView.vue
 │   │   ├── ConfigView.vue
 │   │   ├── MonitorView.vue
-│   │   └── ProfilesView.vue
+│   │   ├── ProfilesView.vue
+│   │   └── AuthView.vue
 │   ├── components/
 │   │   ├── common/
 │   │   │   ├── TabNav.vue
@@ -134,9 +142,13 @@ tairseach/
 │   │   ├── monitor/
 │   │   │   ├── UsageGauge.vue
 │   │   │   └── SessionList.vue
-│   │   └── profiles/
-│   │       ├── AgentCard.vue
-│   │       └── AvatarUpload.vue
+│   │   ├── profiles/
+│   │   │   ├── AgentCard.vue
+│   │   │   └── AvatarUpload.vue
+│   │   └── auth/
+│   │       ├── ServiceCard.vue
+│   │       ├── TokenStatus.vue
+│   │       └── OAuthConnect.vue
 │   └── assets/
 │       └── styles/
 │           ├── main.css
@@ -168,6 +180,9 @@ tairseach/
 │   │   └── avatar.png
 │   └── muirgen/
 │       └── avatar.png
+├── tokens/             # OAuth tokens (encrypted)
+│   ├── google.keychain # Google OAuth (stored in macOS Keychain)
+│   └── services.json   # Service metadata (not secrets)
 └── cache/
     └── schema.json     # Cached OpenClaw config schema
 ```
@@ -710,6 +725,209 @@ Edit Modal:
 
 ---
 
+## Goal 6: Auth Broker (OAuth Persistence)
+
+### Overview
+
+CLI tools like GOG (Google Workspace CLI) have a persistent problem: each CLI invocation is a new process, so macOS "Always Allow" prompts for Keychain access don't persist. The user has to click "Allow" repeatedly.
+
+**The Problem:**
+```
+$ gog gmail send ...
+[macOS Keychain prompt: "gog wants to access your login keychain"]
+→ User clicks "Always Allow"
+→ Next invocation: same prompt appears again (new process, new permission check)
+```
+
+**The Solution:**
+Tairseach acts as a persistent OAuth broker. CLI tools communicate with Tairseach (which is already running and has Keychain access granted once), and Tairseach handles the actual OAuth token management.
+
+### Architecture
+
+```
+┌─────────────────┐     ┌─────────────────────────────────────┐
+│   CLI Tool      │     │           Tairseach.app              │
+│   (gog, etc.)   │     │                                      │
+│                 │     │  ┌──────────────────────────────┐   │
+│  $ tairseach    │────►│  │       Auth Broker             │   │
+│    gog gmail    │     │  │  ┌─────────┐  ┌───────────┐  │   │
+│    send ...     │     │  │  │ Token   │  │ OAuth     │  │   │
+│                 │◄────│  │  │ Store   │  │ Refresh   │  │   │
+│  (gets result)  │     │  │  │(Keychn) │  │ Logic     │  │   │
+│                 │     │  │  └─────────┘  └───────────┘  │   │
+└─────────────────┘     │  └──────────────────────────────┘   │
+                        │                                      │
+                        │  macOS Keychain (accessed ONCE)     │
+                        └─────────────────────────────────────┘
+```
+
+### Supported Services
+
+| Service | CLI Tool | OAuth Scopes |
+|---------|----------|--------------|
+| Google Workspace | GOG | Gmail, Calendar, Drive, Contacts |
+| Microsoft 365 | (future) | Outlook, OneDrive |
+| GitHub | gh (passthrough) | repo, gist, etc. |
+
+### Token Storage
+
+Tokens stored in **macOS Keychain** via Security framework:
+- Service: `com.tairseach.oauth.<provider>`
+- Account: User's email/ID
+- Encrypted at rest by macOS
+
+```rust
+// src-tauri/src/auth/tokens.rs
+
+use security_framework::keychain::SecKeychain;
+
+pub struct TokenStore {
+    keychain: SecKeychain,
+}
+
+impl TokenStore {
+    pub fn get_token(&self, service: &str) -> Result<OAuthToken, Error> {
+        let item = self.keychain.find_generic_password(
+            &format!("com.tairseach.oauth.{}", service),
+            &self.account_id,
+        )?;
+        serde_json::from_slice(&item.password)
+    }
+    
+    pub fn store_token(&self, service: &str, token: &OAuthToken) -> Result<(), Error> {
+        self.keychain.set_generic_password(
+            &format!("com.tairseach.oauth.{}", service),
+            &self.account_id,
+            &serde_json::to_vec(token)?,
+        )
+    }
+    
+    pub async fn refresh_if_needed(&self, service: &str) -> Result<OAuthToken, Error> {
+        let token = self.get_token(service)?;
+        if token.is_expired() {
+            let refreshed = self.refresh_token(service, &token.refresh_token).await?;
+            self.store_token(service, &refreshed)?;
+            Ok(refreshed)
+        } else {
+            Ok(token)
+        }
+    }
+}
+```
+
+### CLI Passthrough
+
+CLI tools invoke Tairseach instead of directly calling the service:
+
+```bash
+# Instead of:
+$ gog gmail send --to foo@bar.com --subject "Hello" --body "World"
+
+# Use:
+$ tairseach gog gmail send --to foo@bar.com --subject "Hello" --body "World"
+
+# Or configure GOG to use Tairseach as its credential helper
+```
+
+Tairseach's CLI interface:
+
+```bash
+# Passthrough to GOG with Tairseach-managed credentials
+tairseach gog <gog-args>
+
+# Direct token management
+tairseach auth status              # Show connected services
+tairseach auth connect google      # Initiate OAuth flow
+tairseach auth disconnect google   # Revoke and remove tokens
+tairseach auth refresh google      # Force token refresh
+```
+
+### OAuth Flow
+
+1. User clicks "Connect Google" in Tairseach UI
+2. Tairseach opens browser to Google OAuth consent
+3. Google redirects to `tairseach://oauth/callback?code=...`
+4. Tairseach exchanges code for tokens
+5. Tokens stored in macOS Keychain
+6. macOS prompts ONCE for Keychain access
+7. User clicks "Always Allow"
+8. All future CLI invocations use Tairseach → no more prompts
+
+### UI Design
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔑 Connected Services                                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  🔵 Google Workspace                    ● Connected  │   │
+│  │     geiltalasdair@gmail.com                         │   │
+│  │     Scopes: Gmail, Calendar, Drive, Contacts        │   │
+│  │     Token expires: 47 minutes                       │   │
+│  │     Last used: 2 minutes ago                        │   │
+│  │                                                     │   │
+│  │     [Refresh Token]  [Disconnect]                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  ⬜ Microsoft 365                       ○ Not Setup  │   │
+│  │                                                     │   │
+│  │     [Connect Microsoft Account]                     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│                                                             │
+│  CLI Usage:                                                 │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  $ tairseach gog gmail send --to ...                │   │
+│  │  $ tairseach gog calendar list                      │   │
+│  │  $ tairseach gog drive list                         │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### GOG Integration
+
+Update GOG to optionally use Tairseach as credential provider:
+
+```bash
+# GOG config (~/.config/gog/config.yaml)
+credential_helper: tairseach
+
+# Or environment variable
+GOG_CREDENTIAL_HELPER=tairseach gog gmail send ...
+```
+
+When configured, GOG calls:
+```bash
+tairseach auth get-token google
+```
+
+And receives a valid access token on stdout.
+
+### Tasks — Goal 6
+
+| Task ID | Description | Agent | Count | Depends On |
+|---------|-------------|-------|-------|------------|
+| O-001 | Keychain token storage module (Rust) | FORGE | 1 | — |
+| O-002 | Google OAuth flow implementation | CIPHER | 1 | O-001 |
+| O-003 | Token refresh logic | CIPHER | 1 | O-001, O-002 |
+| O-004 | Deep link handler (`tairseach://`) | FORGE | 1 | — |
+| O-005 | CLI passthrough command (`tairseach gog ...`) | FORGE | 1 | O-001 |
+| O-006 | Auth store (Pinia) | NEXUS | 1 | O-001 |
+| O-007 | ServiceCard.vue component | CANVAS | 1 | — |
+| O-008 | OAuthConnect.vue (OAuth flow UI) | CANVAS | 1 | O-002 |
+| O-009 | AuthView.vue full tab | CANVAS | 1 | O-007, O-008 |
+| O-010 | Token status display (expiry, last used) | CANVAS | 1 | O-006 |
+| O-011 | GOG credential helper integration | NEXUS | 1 | O-005 |
+| O-012 | Microsoft OAuth (future, stub) | CIPHER | 1 | O-002 |
+
+**Total: 12 tasks, 4 agents**
+
+---
+
 ## Shared Infrastructure Tasks
 
 | Task ID | Description | Agent | Count | Depends On |
@@ -737,16 +955,17 @@ Edit Modal:
 | **3. MCP Server** | 10 | CIPHER, FORGE, CANVAS |
 | **4. Context Monitor** | 9 | NEXUS, CANVAS |
 | **5. Agent Profiles** | 8 | FORGE, NEXUS, CANVAS |
-| **Total** | **55 tasks** | |
+| **6. Auth Broker** | 12 | FORGE, CIPHER, NEXUS, CANVAS |
+| **Total** | **67 tasks** | |
 
 ### Agent Allocation
 
 | Agent | Specialization | Task Count |
 |-------|----------------|------------|
-| **FORGE** | Rust backend, system APIs, FFI | 12 |
-| **CANVAS** | Vue components, UI/UX, styling | 18 |
-| **NEXUS** | State management, integrations, IPC | 14 |
-| **CIPHER** | MCP protocol, security, middleware | 6 |
+| **FORGE** | Rust backend, system APIs, FFI | 15 |
+| **CANVAS** | Vue components, UI/UX, styling | 22 |
+| **NEXUS** | State management, integrations, IPC | 16 |
+| **CIPHER** | MCP protocol, security, OAuth | 9 |
 | **ECHO** | Documentation | 1 |
 
 ### Recommended Parallel Execution
@@ -765,10 +984,11 @@ Edit Modal:
 - NEXUS: Gateway integration
 - CANVAS: Config + Monitor views
 
-**Phase 4: MCP + Profiles** (M-001 → M-010, A-001 → A-008)
-- CIPHER: MCP server
-- FORGE: System tools
-- CANVAS: Profile UI
+**Phase 4: MCP + Profiles + Auth** (M-001 → M-010, A-001 → A-008, O-001 → O-012)
+- CIPHER: MCP server + OAuth flows
+- FORGE: System tools + Keychain integration
+- CANVAS: Profile UI + Auth UI
+- NEXUS: GOG integration
 
 ---
 
