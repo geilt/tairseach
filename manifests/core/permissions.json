@@ -1,0 +1,50 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "permissions",
+  "name": "Permissions",
+  "description": "Query/request macOS permission state.",
+  "version": "0.1.0",
+  "category": "security",
+  "tools": [
+    {
+      "name": "permissions_check",
+      "description": "Check one permission.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["permission"],
+        "properties": {"permission": {"type": "string", "enum": ["contacts", "calendar", "reminders", "location", "photos", "camera", "microphone", "screen_recording", "accessibility", "full_disk_access", "automation"]}},
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object", "required": ["permission", "status", "granted"], "properties": {"permission": {"type": "string"}, "status": {"type": "string"}, "granted": {"type": "boolean"}}},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "permissions_list",
+      "description": "List all permissions.",
+      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "outputSchema": {"type": "object", "required": ["permissions", "total"], "properties": {"permissions": {"type": "array"}, "total": {"type": "integer"}}},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "permissions_request",
+      "description": "Request one permission.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["permission"],
+        "properties": {"permission": {"type": "string", "enum": ["contacts", "calendar", "reminders", "location", "photos", "camera", "microphone", "screen_recording", "accessibility", "full_disk_access", "automation"]}},
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object", "required": ["permission", "action", "message"], "properties": {"permission": {"type": "string"}, "action": {"type": "string"}, "message": {"type": "string"}}}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.permissions",
+    "methods": {
+      "permissions_check": "permissions.check",
+      "permissions_list": "permissions.list",
+      "permissions_request": "permissions.request"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

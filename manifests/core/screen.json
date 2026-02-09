@@ -1,0 +1,33 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "screen",
+  "name": "Screen",
+  "description": "Screen capture and window listing.",
+  "version": "0.1.0",
+  "category": "observability",
+  "requires": {"permissions": [{"name": "screen_recording"}]},
+  "tools": [
+    {
+      "name": "screen_capture",
+      "description": "Capture screenshot.",
+      "inputSchema": {"type": "object", "properties": {"display": {"type": "integer", "minimum": 0}, "format": {"type": "string", "enum": ["png", "jpg", "jpeg"]}, "path": {"type": "string"}}, "additionalProperties": false},
+      "outputSchema": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}, "width": {"type": "integer"}, "height": {"type": "integer"}, "fileSize": {"type": "integer"}, "format": {"type": "string"}}}
+    },
+    {
+      "name": "screen_windows",
+      "description": "List visible windows.",
+      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+      "outputSchema": {"type": "object", "required": ["windows", "count"], "properties": {"windows": {"type": "array"}, "count": {"type": "integer"}}},
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.screen",
+    "methods": {
+      "screen_capture": "screen.capture",
+      "screen_windows": "screen.windows"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

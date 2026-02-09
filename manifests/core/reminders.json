@@ -1,0 +1,30 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "reminders",
+  "name": "Reminders",
+  "description": "macOS Reminders via EventKit/JXA.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "requires": {"permissions": [{"name": "reminders"}]},
+  "tools": [
+    {"name": "reminders_lists", "description": "List reminder lists.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["lists", "count"], "properties": {"lists": {"type": "array"}, "count": {"type": "integer"}}}, "annotations": {"readOnlyHint": true}},
+    {"name": "reminders_list", "description": "List reminders.", "inputSchema": {"type": "object", "properties": {"listId": {"type": "string"}, "includeCompleted": {"type": "boolean"}}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["reminders", "count", "includeCompleted"], "properties": {"reminders": {"type": "array"}, "count": {"type": "integer"}, "includeCompleted": {"type": "boolean"}}}, "annotations": {"readOnlyHint": true}},
+    {"name": "reminders_create", "description": "Create reminder.", "inputSchema": {"type": "object", "required": ["title"], "properties": {"title": {"type": "string"}, "listId": {"type": "string"}, "dueDate": {"type": "string"}, "notes": {"type": "string"}, "priority": {"type": "integer"}}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["created", "reminder"], "properties": {"created": {"type": "boolean"}, "reminder": {"type": "object"}}}},
+    {"name": "reminders_complete", "description": "Mark reminder complete.", "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["completed", "id"], "properties": {"completed": {"type": "boolean"}, "id": {"type": "string"}}}},
+    {"name": "reminders_uncomplete", "description": "Mark reminder incomplete.", "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["uncompleted", "id"], "properties": {"uncompleted": {"type": "boolean"}, "id": {"type": "string"}}}},
+    {"name": "reminders_delete", "description": "Delete reminder.", "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}, "additionalProperties": false}, "outputSchema": {"type": "object", "required": ["deleted", "id"], "properties": {"deleted": {"type": "boolean"}, "id": {"type": "string"}}}, "annotations": {"destructiveHint": true}}
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.reminders",
+    "methods": {
+      "reminders_lists": "reminders.lists",
+      "reminders_list": "reminders.list",
+      "reminders_create": "reminders.create",
+      "reminders_complete": "reminders.complete",
+      "reminders_uncomplete": "reminders.uncomplete",
+      "reminders_delete": "reminders.delete"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

@@ -1,0 +1,66 @@
+[package]
+name = "tairseach"
+version = "0.1.0"
+description = "The Threshold - macOS bridge for the Naonúr ecosystem"
+authors = ["Naonúr"]
+edition = "2021"
+
+[lib]
+name = "tairseach_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dirs = "5"
+tokio = { version = "1", features = ["full", "net", "io-util", "sync", "macros", "rt-multi-thread"] }
+once_cell = "1"
+notify = { version = "6", default-features = false, features = ["macos_fsevent"] }
+
+# Unix socket security
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Auth broker
+aes-gcm = "0.10"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+urlencoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+# macOS Keychain (replacing security CLI)
+[target.'cfg(target_os = "macos")'.dependencies.security-framework]
+version = "2.11"
+
+# macOS system APIs
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSObject", "NSError", "NSArray", "NSDate", "NSRunLoop", "NSThread"] }
+objc2-contacts = { version = "0.3", features = ["CNContactStore", "CNContact", "CNContactFetchRequest", "CNContactFormatter", "CNLabeledValue", "CNPhoneNumber", "CNMutableContact", "CNSaveRequest"] }
+objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKReminder"] }
+objc2-photos = { version = "0.3", features = ["PHPhotoLibrary", "PHAsset"] }
+objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice"] }
+objc2-core-location = { version = "0.3", features = ["CLLocationManager", "CLLocation", "CLLocationManagerDelegate", "CLError", "CLErrorDomain"] }
+block2 = "0.6"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

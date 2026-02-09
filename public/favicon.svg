@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Tairseach portal icon - The Threshold -->
+  <defs>
+    <linearGradient id="gold-glow" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFE5A0"/>
+      <stop offset="50%" style="stop-color:#C9A227"/>
+      <stop offset="100%" style="stop-color:#8B5A00"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A4A4A"/>
+      <stop offset="100%" style="stop-color:#2A2A2A"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="100" height="100" fill="#1A1A1F" rx="15"/>
+  
+  <!-- Portal glow (behind stones) -->
+  <ellipse cx="50" cy="55" rx="12" ry="30" fill="url(#gold-glow)" filter="url(#glow)" opacity="0.8"/>
+  
+  <!-- Left standing stone -->
+  <path d="M25 85 L30 30 L40 28 L42 85 Z" fill="url(#stone)" stroke="#1A1A1F" stroke-width="1"/>
+  
+  <!-- Right standing stone -->
+  <path d="M75 85 L70 30 L60 28 L58 85 Z" fill="url(#stone)" stroke="#1A1A1F" stroke-width="1"/>
+  
+  <!-- Capstone -->
+  <path d="M22 32 L28 22 L72 22 L78 32 L22 32" fill="url(#stone)" stroke="#1A1A1F" stroke-width="1"/>
+  
+  <!-- Inner portal light beam -->
+  <path d="M44 30 L44 80 L56 80 L56 30" fill="url(#gold-glow)" opacity="0.9"/>
+  
+  <!-- Celtic ring (simplified arc) -->
+  <circle cx="50" cy="50" r="38" fill="none" stroke="#C9A227" stroke-width="1.5" opacity="0.4"/>
+</svg>

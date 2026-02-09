@@ -1,0 +1,40 @@
+{
+  "name": "@tairseach/client",
+  "version": "0.1.0",
+  "description": "Node.js client library for Tairseach - macOS system integration daemon",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "tairseach",
+    "macos",
+    "contacts",
+    "calendar",
+    "reminders",
+    "location",
+    "json-rpc"
+  ],
+  "author": "Esotech",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

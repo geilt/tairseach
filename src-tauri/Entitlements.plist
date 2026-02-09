@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- No sandbox - we need full system access -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+    
+    <!-- Automation / Apple Events -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    
+    <!-- Contacts -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    
+    <!-- Calendars -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
+    
+    <!-- Reminders -->
+    <key>com.apple.security.personal-information.reminders</key>
+    <true/>
+    
+    <!-- Photos -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
+    
+    <!-- Camera -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    
+    <!-- Microphone -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    
+    <!-- Location -->
+    <key>com.apple.security.personal-information.location</key>
+    <true/>
+    
+    <!-- Keychain access (for auth broker master key) -->
+    <key>com.apple.security.keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.naonur.tairseach</string>
+    </array>
+    
+    <!-- File access -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

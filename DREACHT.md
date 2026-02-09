@@ -2,1014 +2,391 @@
 
 *"Tairseach" (TAR-shakh) — The Threshold*
 
-A macOS bridge application for the Naonúr ecosystem. The threshold between the digital realm and the system beneath.
-
-**Created:** 2026-02-03
-**Author:** Suibhne (with Geilt)
-**Status:** Planning
+**The Centralized Automation Kernel for macOS**
 
 ---
 
 ## Vision
 
-Tairseach is the macOS system bridge for OpenClaw agents. It provides:
-1. **Permission Proxy** — Request and manage macOS permissions on behalf of agents
-2. **Configuration Manager** — Visual editor for `~/.openclaw.json`
-3. **MCP Server** — Model Context Protocol server for efficient agent ↔ OpenClaw communication
-4. **Context Monitor** — Real-time token usage tracking (like CodexBar)
-5. **Agent Profiles** — Visual identity management for agents
-6. **Auth Broker** — Persistent OAuth session management for CLI tools (GOG, etc.)
+Tairseach is the macOS bridge that makes agentic systems possible. It transforms the fragile landscape of CLI tools, scattered credentials, and manual permission management into a **unified, secure, manifest-based capability system**.
+
+**What agents get:**
+- **Zero-knowledge credential access** — OAuth tokens never leave Tairseach (Tier 1 proxy mode)
+- **Unified interface** — One socket, one protocol (MCP or JSON-RPC), all capabilities
+- **Permission management** — Tairseach handles all macOS TCC prompts
+- **Manifest extensibility** — Add new integrations without code changes
+
+**What you get:**
+- **Security by design** — AES-256-GCM encrypted credentials, audit logs, sandboxed scripts
+- **Native performance** — Rust + objc2 bindings to macOS frameworks
+- **Beautiful UI** — Vue 3 frontend for managing permissions, credentials, manifests
+- **Community ecosystem** — Share and install capability manifests
 
 ---
 
-## Architecture Overview
+## Current Status (2026-02-08)
+
+**Version:** v2 Implementation Phase  
+**Work Order:** [WO-2026-0001](~/naonur/dail/dev/work-orders/WO-2026-0001-tairseach-dreacht/)
+
+### ✅ Built & Working
+
+| Component | Status |
+|-----------|--------|
+| **Socket Server** | ✅ JSON-RPC 2.0 over Unix socket (`~/.tairseach/tairseach.sock`) |
+| **Permissions System** | ✅ All 11 macOS permissions via native objc2 bindings |
+| **Native Handlers** | ✅ Contacts, Calendar, Reminders, Location, Screen, Files, Automation |
+| **Auth Broker** | ✅ AES-256-GCM encryption, Keychain master key, Google OAuth PKCE |
+| **Permissions UI** | ✅ Vue 3 frontend with real-time status |
+| **Code Signing** | ✅ Developer ID Application certificate |
+
+### 🔄 In Progress (v2)
+
+| Component | Status | Owner |
+|-----------|--------|-------|
+| **Manifest System** | 🔄 Design complete, implementation starting | Muirgen |
+| **Capability Router** | 🔄 Design complete, implementation starting | Muirgen |
+| **MCP Bridge** | 🔄 Design complete, bridge binary scaffolded | Muirgen + Gwrhyr |
+| **Google Workspace** | 🔄 Gmail/Calendar/Drive handlers planned | Muirgen |
+| **Activity Feed UI** | 🔄 Design complete | Gwrhyr |
+| **Credential Manager UI** | 🔄 Design complete | Gwrhyr |
+
+### ⏳ Planned (v2)
+
+- **Manifest hot-reload** (filesystem watcher)
+- **Cron Calendar UI** (visual job scheduler)
+- **Global Memory Search UI** (cross-agent search)
+- **1Password integration**
+- **Slack API integration**
+- **Community manifest registry**
+
+---
+
+## Architecture
+
+For comprehensive architecture documentation, see:
+
+**📖 [`~/naonur/dail/projects/tairseach/architecture.md`](~/naonur/dail/projects/tairseach/architecture.md)**
+
+### Quick Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Tairseach.app                              │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                      Tauri Shell                            │  │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │  │
-│  │  │ Rust Core  │ │ MCP Server │ │ Permission │ │  Auth    │ │  │
-│  │  │ (Commands) │ │ (Built-in) │ │   Bridge   │ │  Broker  │ │  │
-│  │  └────────────┘ └────────────┘ └────────────┘ └──────────┘ │  │
-│  │                        ↓                                    │  │
-│  │  ┌──────────────────────────────────────────────────────┐  │  │
-│  │  │              WebView Frontend                         │  │  │
-│  │  │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐    │  │  │
-│  │  │  │Dash │ │Perm │ │Conf │ │Mon  │ │Prof │ │Auth │    │  │  │
-│  │  │  │board│ │iss- │ │ig   │ │itor │ │iles │ │     │    │  │  │
-│  │  │  │     │ │ions │ │     │ │     │ │     │ │     │    │  │  │
-│  │  │  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘ └─────┘    │  │  │
-│  │  └──────────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-         │                    │                    │            │
-         ▼                    ▼                    ▼            ▼
-   ~/.tairseach/      ~/.openclaw.json     OpenClaw       CLI Tools
-   (logs, tokens)      (config)            Gateway        (gog, etc.)
+Agent (OpenClaw)
+    ↓ MCP Protocol
+tairseach-mcp (bridge binary)
+    ↓ Unix Socket (JSON-RPC 2.0)
+Tairseach.app
+    ├─ Socket Server (request routing)
+    ├─ Capability Router (manifest-based dispatch)
+    ├─ Auth Broker (encrypted credential store)
+    ├─ Permissions System (macOS TCC)
+    └─ Handlers (native, script, proxy)
+        ↓
+    macOS APIs / External APIs
 ```
 
+### Key Concepts
+
+**Manifests** — JSON documents that describe capabilities (tools, credentials, permissions, implementation). Three types:
+- **Internal** — Native Rust code (Contacts, Calendar, etc.)
+- **Script** — Execute external scripts with credential injection
+- **Proxy** — Make HTTP API calls with auth headers
+
+**Two-Tier Credentials:**
+- **Tier 1 (Proxy Mode)** — Agent never sees credentials. Tairseach makes API call internally. **Preferred.**
+- **Tier 2 (Pass-Through)** — Agent receives short-lived token. Use only when proxy isn't possible (WebSockets, etc.).
+
+**MCP Bridge** — Standalone binary (`tairseach-mcp`) that translates MCP protocol to Tairseach socket calls. Ships with app, configured in OpenClaw `mcpServers`.
+
 ---
 
-## Technology Stack
+## Quick References
 
-| Layer | Technology | Rationale |
-|-------|------------|-----------|
-| **Shell** | Tauri 2.x | Native macOS, small binary, Rust safety |
-| **Backend** | Rust | Permission APIs, file I/O, MCP server |
-| **Frontend** | Vue 3 + TypeScript | Component architecture, maintainable |
-| **Styling** | TailwindCSS | Utility-first, easy theming |
-| **State** | Pinia | Vue's recommended store |
-| **IPC** | Tauri Commands + Events | Type-safe Rust ↔ JS bridge |
+For hands-on guides, see:
+
+**📖 [`~/naonur/dail/projects/tairseach/quickrefs/`](~/naonur/dail/projects/tairseach/quickrefs/)**
+
+**Available:**
+- `capability-router-pattern.md` — Dynamic routing design
+- `manifest-loader-pattern.md` — Discovery and validation
+- `mcp-bridge-architecture.md` — Bridge binary design
+- `credential-injection-pattern.md` — Secure script credential passing
+- `socket-security-pattern.md` — UID verification and permissions
+- Plus 5 more implementation patterns
 
 ---
 
-## File Structure
+## For Developers
+
+### Build & Run
+
+```bash
+# Clone repo
+cd ~/environment/tairseach
+
+# Install frontend deps
+npm install
+
+# Run in dev mode
+npm run tauri dev
+
+# Build release
+npm run tauri build
+```
+
+### Project Structure
 
 ```
 tairseach/
-├── DREACHT.md                 # This document
-├── README.md                  # Project overview
-├── Cargo.toml                 # Rust workspace
-├── package.json               # Node/frontend deps
-├── tauri.conf.json            # Tauri configuration
-│
-├── src-tauri/                 # Rust backend
-│   ├── Cargo.toml
+├── src-tauri/                  # Rust backend (Tauri app)
 │   ├── src/
-│   │   ├── main.rs            # Entry point
-│   │   ├── lib.rs             # Command exports
-│   │   ├── permissions/       # macOS permission handling
-│   │   │   ├── mod.rs
-│   │   │   ├── contacts.rs
-│   │   │   ├── automation.rs
-│   │   │   ├── full_disk.rs
-│   │   │   ├── accessibility.rs
-│   │   │   ├── screen_recording.rs
-│   │   │   └── calendar.rs
-│   │   ├── config/            # OpenClaw config management
-│   │   │   ├── mod.rs
-│   │   │   ├── schema.rs
-│   │   │   └── editor.rs
-│   │   ├── mcp/               # MCP server
-│   │   │   ├── mod.rs
-│   │   │   ├── server.rs
-│   │   │   └── handlers.rs
-│   │   ├── monitor/           # Context usage tracking
-│   │   │   ├── mod.rs
-│   │   │   └── usage.rs
-│   │   ├── profiles/          # Agent profile management
-│   │   │   ├── mod.rs
-│   │   │   └── storage.rs
-│   │   └── auth/              # OAuth broker
-│   │       ├── mod.rs
-│   │       ├── tokens.rs      # Token storage & refresh
-│   │       ├── google.rs      # Google OAuth flow
-│   │       └── proxy.rs       # CLI passthrough
-│   └── icons/                 # App icons
-│
-├── src/                       # Vue frontend
-│   ├── main.ts
-│   ├── App.vue
-│   ├── router/
-│   │   └── index.ts
-│   ├── stores/
-│   │   ├── permissions.ts
-│   │   ├── config.ts
-│   │   ├── monitor.ts
-│   │   ├── profiles.ts
-│   │   └── auth.ts
-│   ├── views/
-│   │   ├── DashboardView.vue
-│   │   ├── PermissionsView.vue
-│   │   ├── ConfigView.vue
-│   │   ├── MonitorView.vue
-│   │   ├── ProfilesView.vue
-│   │   └── AuthView.vue
-│   ├── components/
-│   │   ├── common/
-│   │   │   ├── TabNav.vue
-│   │   │   ├── StatusBadge.vue
-│   │   │   └── Toast.vue
-│   │   ├── permissions/
-│   │   │   ├── PermissionCard.vue
-│   │   │   └── PermissionStatus.vue
-│   │   ├── config/
-│   │   │   ├── ConfigSection.vue
-│   │   │   ├── ConfigField.vue
-│   │   │   └── ArrayEditor.vue
-│   │   ├── monitor/
-│   │   │   ├── UsageGauge.vue
-│   │   │   └── SessionList.vue
-│   │   ├── profiles/
-│   │   │   ├── AgentCard.vue
-│   │   │   └── AvatarUpload.vue
-│   │   └── auth/
-│   │       ├── ServiceCard.vue
-│   │       ├── TokenStatus.vue
-│   │       └── OAuthConnect.vue
-│   └── assets/
-│       └── styles/
-│           ├── main.css
-│           └── naonur-theme.css
-│
-└── .tairseach/                # Runtime data (in ~/.tairseach/)
-    ├── logs/
-    ├── profiles/
-    │   └── [agent-id]/
-    │       └── avatar.png
-    └── cache/
+│   │   ├── proxy/              # Socket server & handlers
+│   │   ├── auth/               # Auth broker & encryption
+│   │   ├── permissions/        # macOS permission system
+│   │   ├── manifests/          # Manifest loader & registry
+│   │   └── router/             # Capability router
+│   └── Cargo.toml
+├── crates/
+│   ├── tairseach-protocol/     # Shared types (JSON-RPC, socket client)
+│   └── tairseach-mcp/          # MCP bridge binary
+├── src/                        # Vue 3 frontend
+│   ├── views/                  # UI views
+│   ├── stores/                 # Pinia state management
+│   └── components/
+└── package.json
 ```
+
+### Tech Stack
+
+- **Backend:** Rust, Tauri 2.x, objc2 (macOS frameworks)
+- **Frontend:** Vue 3, TypeScript, TailwindCSS, Pinia
+- **Crypto:** AES-256-GCM (aes_gcm crate), macOS Keychain
+- **Protocol:** JSON-RPC 2.0, MCP (Model Context Protocol)
 
 ---
 
-## Data Storage
+## For Users
 
-**Location:** `~/.tairseach/`
+### Installation
 
-```
-~/.tairseach/
-├── config.json         # Tairseach's own settings
-├── logs/
-│   └── tairseach.log   # Application logs
-├── profiles/
-│   ├── suibhne/
-│   │   └── avatar.png
-│   ├── becuma/
-│   │   └── avatar.png
-│   └── muirgen/
-│       └── avatar.png
-├── tokens/             # OAuth tokens (encrypted)
-│   ├── google.keychain # Google OAuth (stored in macOS Keychain)
-│   └── services.json   # Service metadata (not secrets)
-└── cache/
-    └── schema.json     # Cached OpenClaw config schema
-```
+**macOS 12+ (Monterey or later) required**
 
----
-
-## Design Language — Naonúr Aesthetic
-
-### Color Palette
-
-```css
-:root {
-  /* Primary */
-  --naonur-gold: #C9A227;          /* Accent, buttons, highlights */
-  --naonur-gold-dim: #8B7019;      /* Muted gold */
-  
-  /* Backgrounds */
-  --naonur-void: #0A0A0F;          /* Deepest background */
-  --naonur-shadow: #12121A;        /* Card backgrounds */
-  --naonur-mist: #1A1A24;          /* Elevated surfaces */
-  --naonur-fog: #252532;           /* Hover states */
-  
-  /* Text */
-  --naonur-bone: #E8E4D9;          /* Primary text */
-  --naonur-ash: #9A978F;           /* Secondary text */
-  --naonur-smoke: #5A5850;         /* Disabled text */
-  
-  /* Status */
-  --naonur-moss: #4A7C59;          /* Success, granted */
-  --naonur-rust: #8B4513;          /* Warning, pending */
-  --naonur-blood: #8B0000;         /* Error, denied */
-  --naonur-water: #4A7C8C;         /* Info, neutral */
-}
-```
-
-### Typography
-
-```css
-/* Headings - Cinzel (Celtic/mystical feel) */
---font-display: 'Cinzel', serif;
-
-/* Body - Cormorant Garamond (readable, elegant) */
---font-body: 'Cormorant Garamond', serif;
-
-/* Code/Data - JetBrains Mono */
---font-mono: 'JetBrains Mono', monospace;
-```
-
-### Visual Motifs
-
-- **Feathers** — Subtle feather watermarks (Suibhne's symbol)
-- **Triquetra** — Celtic three-fold knot for navigation/loading
-- **Threshold imagery** — Doorways, borders, liminal spaces
-- **Particle effects** — Drifting motes like dust in light beams
-
----
-
-## Goal 1: Permissions Proxy (PRIORITY)
-
-### Overview
-
-The core function of Tairseach. Provides a unified interface for macOS permissions so agents can request access through Tairseach rather than needing direct system access.
-
-### Permissions to Track
-
-| Permission | TCC Database Key | Critical? | Check Method |
-|------------|-----------------|-----------|--------------|
-| Contacts | `kTCCServiceAddressBook` | ✅ Yes | `CNContactStore.authorizationStatus` |
-| Automation | `kTCCServiceAppleEvents` | ✅ Yes | `AEDeterminePermissionToAutomateTarget` |
-| Full Disk Access | `kTCCServiceSystemPolicyAllFiles` | ✅ Yes | Probe `/Library/Application Support/com.apple.TCC/TCC.db` |
-| Accessibility | `kTCCServiceAccessibility` | No | `AXIsProcessTrusted` |
-| Screen Recording | `kTCCServiceScreenCapture` | No | `CGPreflightScreenCaptureAccess` |
-| Calendar | `kTCCServiceCalendar` | No | `EKEventStore.authorizationStatus` |
-| Reminders | `kTCCServiceReminders` | No | `EKEventStore.authorizationStatus` |
-| Photos | `kTCCServicePhotos` | No | `PHPhotoLibrary.authorizationStatus` |
-| Camera | `kTCCServiceCamera` | No | `AVCaptureDevice.authorizationStatus` |
-| Microphone | `kTCCServiceMicrophone` | No | `AVCaptureDevice.authorizationStatus` |
-| Location | `kTCCServiceLocation` | No | `CLLocationManager.authorizationStatus` |
-
-### Rust Implementation
-
-```rust
-// src-tauri/src/permissions/mod.rs
-
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PermissionStatus {
-    Granted,
-    Denied,
-    NotDetermined,
-    Restricted,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Permission {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub status: PermissionStatus,
-    pub critical: bool,
-    pub last_checked: Option<String>,
-}
-
-#[tauri::command]
-pub fn check_permission(permission_id: &str) -> Result<Permission, String> {
-    // Dispatch to specific permission checker
-}
-
-#[tauri::command]
-pub fn request_permission(permission_id: &str) -> Result<Permission, String> {
-    // Open System Preferences to appropriate pane
-    // macOS doesn't allow programmatic grant—user must manually enable
-}
-
-#[tauri::command]
-pub fn check_all_permissions() -> Vec<Permission> {
-    // Return status of all tracked permissions
-}
-```
-
-### Agent Integration
-
-When an agent attempts an action requiring permissions:
-
-```rust
-// Permission check middleware for MCP commands
-pub async fn with_permission_check<F, T>(
-    permission_id: &str,
-    action: F,
-) -> Result<T, PermissionError>
-where
-    F: FnOnce() -> Result<T, Error>,
-{
-    let status = check_permission(permission_id)?;
-    
-    match status.status {
-        PermissionStatus::Granted => action().map_err(PermissionError::ActionFailed),
-        _ => {
-            // Emit event to frontend to show popup
-            emit_permission_needed(permission_id);
-            
-            // Return structured error for agent
-            Err(PermissionError::NotGranted {
-                permission: permission_id.to_string(),
-                message: format!(
-                    "Permission '{}' not granted. User must enable in System Preferences.",
-                    status.name
-                ),
-            })
-        }
-    }
-}
-```
-
-### UI Components
-
-**PermissionsView.vue** — Main tab showing all permissions as cards
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🔐 Permissions                                             │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐│
-│  │ 📇 Contacts     │  │ 🤖 Automation   │  │ 💾 Full Disk ││
-│  │                 │  │                 │  │              ││
-│  │   ● Granted     │  │   ○ Not Set     │  │  ○ Denied    ││
-│  │                 │  │                 │  │              ││
-│  │  [Granted ✓]    │  │  [Request]      │  │  [Request]   ││
-│  └─────────────────┘  └─────────────────┘  └──────────────┘│
-│                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐│
-│  │ ♿ Accessibility │  │ 🖥 Screen Rec   │  │ 📅 Calendar  ││
-│  │   ...           │  │   ...           │  │   ...        ││
-│  └─────────────────┘  └─────────────────┘  └──────────────┘│
-│                                                             │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│  Status: 3 of 6 critical permissions granted                │
-│  [Refresh All]  [Open System Preferences]                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Tasks — Goal 1
-
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| P-001 | Rust permission status check APIs (all 11 permissions) | FORGE | 1 | — |
-| P-002 | Swift bridge for permission APIs (FFI) | FORGE | 1 | P-001 |
-| P-003 | System Preferences deep-link launcher | FORGE | 1 | — |
-| P-004 | Permission needed popup component | CANVAS | 1 | — |
-| P-005 | PermissionCard.vue component | CANVAS | 1 | P-004 |
-| P-006 | PermissionsView.vue full tab | CANVAS | 1 | P-005 |
-| P-007 | Permission store (Pinia) | NEXUS | 1 | P-001 |
-| P-008 | Tauri IPC commands for permissions | NEXUS | 1 | P-001, P-007 |
-| P-009 | MCP permission-check middleware | CIPHER | 1 | P-001 |
-| P-010 | Agent error message formatting | CIPHER | 1 | P-009 |
-
-**Total: 10 tasks, 4 agents**
-
----
-
-## Goal 2: Configuration Manager
-
-### Overview
-
-Visual editor for `~/.openclaw.json`. Improves on openclaw-monitor with:
-- Schema-driven rendering (preserve)
-- Client-side validation (improve)
-- Dirty tracking per field (improve)
-- Better array/object editing (improve)
-- Diff view before save (improve)
-
-### Schema Integration
-
-```typescript
-// Fetch from OpenClaw gateway
-const schema = await invoke('fetch_config_schema');
-const config = await invoke('fetch_config');
-
-// Schema-aware rendering
-function renderField(path: string, schema: JSONSchema, value: any) {
-  const fieldType = inferFieldType(schema);
-  const uiHints = schema['x-ui-hints'] || {};
-  
-  switch (fieldType) {
-    case 'boolean': return <ToggleField />;
-    case 'enum': return <SelectField options={schema.enum} />;
-    case 'integer': return <NumberField min={schema.minimum} max={schema.maximum} />;
-    case 'string': return uiHints.sensitive ? <PasswordField /> : <TextField />;
-    case 'array': return <ArrayEditor itemSchema={schema.items} />;
-    case 'object': return <ObjectEditor properties={schema.properties} />;
-  }
-}
-```
-
-### Validation
-
-```typescript
-// Pre-save validation using JSON Schema
-import Ajv from 'ajv';
-
-const ajv = new Ajv({ allErrors: true });
-const validate = ajv.compile(schema);
-
-function validateConfig(config: object): ValidationResult {
-  const valid = validate(config);
-  if (!valid) {
-    return {
-      valid: false,
-      errors: validate.errors.map(e => ({
-        path: e.instancePath,
-        message: e.message,
-      })),
-    };
-  }
-  return { valid: true, errors: [] };
-}
-```
-
-### UI Layout
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  ⚙️ Configuration                                           │
-├──────────────┬──────────────────────────────────────────────┤
-│              │                                              │
-│  📡 Gateway  │  Gateway Settings                            │
-│  🤖 Agents   │  ─────────────────                           │
-│  🔌 Channels │                                              │
-│  💾 Memory   │  Port: [18789        ]                       │
-│  🎯 Models   │  Token: [••••••••••••] 👁                    │
-│  📚 Skills   │  Log Level: [info ▼]                         │
-│  🔧 Advanced │                                              │
-│              │  [ ] Enable Debug Mode                       │
-│              │                                              │
-│              │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
-│              │                                              │
-│              │  [Revert Changes]  [Validate]  [💾 Save]     │
-└──────────────┴──────────────────────────────────────────────┘
-```
-
-### Tasks — Goal 2
-
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| C-001 | Rust config file read/write with backup | FORGE | 1 | — |
-| C-002 | Gateway schema fetch command | FORGE | 1 | — |
-| C-003 | Config store (Pinia) with dirty tracking | NEXUS | 1 | — |
-| C-004 | JSON Schema validation integration | NEXUS | 1 | C-002 |
-| C-005 | ConfigField.vue (handles all field types) | CANVAS | 1 | — |
-| C-006 | ArrayEditor.vue (add/remove/reorder) | CANVAS | 1 | C-005 |
-| C-007 | ConfigSection.vue (collapsible sections) | CANVAS | 1 | C-005 |
-| C-008 | ConfigView.vue full tab | CANVAS | 1 | C-006, C-007 |
-| C-009 | Diff viewer before save | CANVAS | 1 | C-003 |
-| C-010 | Config save with gateway restart | NEXUS | 1 | C-001 |
-
-**Total: 10 tasks, 3 agents**
-
----
-
-## Goal 3: MCP Server
-
-### Overview
-
-Built-in Model Context Protocol server that OpenClaw agents can use for efficient system operations. This runs as part of Tairseach, not a separate process.
-
-### MCP Endpoints
-
-| Tool | Description | Permission Required |
-|------|-------------|---------------------|
-| `tairseach.permissions.check` | Check permission status | None |
-| `tairseach.permissions.request` | Request permission (opens UI) | None |
-| `tairseach.config.get` | Get OpenClaw config value | None |
-| `tairseach.config.set` | Set OpenClaw config value | None |
-| `tairseach.contacts.list` | List contacts | Contacts |
-| `tairseach.contacts.search` | Search contacts | Contacts |
-| `tairseach.automation.run` | Run AppleScript | Automation |
-| `tairseach.files.read` | Read protected file | Full Disk Access |
-| `tairseach.files.write` | Write protected file | Full Disk Access |
-| `tairseach.screenshot` | Capture screenshot | Screen Recording |
-| `tairseach.calendar.events` | List calendar events | Calendar |
-
-### Server Implementation
-
-```rust
-// src-tauri/src/mcp/server.rs
-
-use tokio::net::TcpListener;
-use serde_json::Value;
-
-pub struct McpServer {
-    listener: TcpListener,
-    permission_checker: PermissionChecker,
-}
-
-impl McpServer {
-    pub async fn start(port: u16) -> Result<Self, Error> {
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
-        // ...
-    }
-    
-    pub async fn handle_request(&self, request: McpRequest) -> McpResponse {
-        // Check permissions before executing
-        if let Some(required_permission) = request.tool.required_permission() {
-            let status = self.permission_checker.check(required_permission)?;
-            if status != PermissionStatus::Granted {
-                return McpResponse::error(
-                    "permission_denied",
-                    format!("Permission '{}' required", required_permission),
-                );
-            }
-        }
-        
-        // Execute tool
-        match request.tool.as_str() {
-            "tairseach.permissions.check" => self.handle_permissions_check(request.args),
-            "tairseach.contacts.list" => self.handle_contacts_list(request.args),
-            // ...
-        }
-    }
-}
-```
-
-### Configuration
+1. Download `Tairseach.dmg` from releases
+2. Open DMG, drag Tairseach.app to Applications
+3. Launch Tairseach
+4. Grant permissions as prompted (Contacts, Calendar, etc.)
+5. Configure OpenClaw to use tairseach-mcp bridge:
 
 ```json
-// In ~/.openclaw.json
 {
   "mcpServers": {
     "tairseach": {
-      "command": "open",
-      "args": ["-a", "Tairseach", "--args", "--mcp-stdio"],
-      "env": {}
+      "command": "/Applications/Tairseach.app/Contents/MacOS/tairseach-mcp",
+      "args": ["--transport", "stdio"]
     }
   }
 }
 ```
 
-### Tasks — Goal 3
+### Permissions
 
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| M-001 | MCP protocol implementation (JSON-RPC) | CIPHER | 1 | — |
-| M-002 | TCP listener with connection handling | CIPHER | 1 | M-001 |
-| M-003 | STDIO mode for MCP integration | CIPHER | 1 | M-001 |
-| M-004 | Permission-check middleware | CIPHER | 1 | P-001, M-001 |
-| M-005 | Contacts tools (list, search) | FORGE | 1 | M-001 |
-| M-006 | Automation tools (run AppleScript) | FORGE | 1 | M-001 |
-| M-007 | File access tools (read, write) | FORGE | 1 | M-001 |
-| M-008 | Screenshot tool | FORGE | 1 | M-001 |
-| M-009 | Calendar tools | FORGE | 1 | M-001 |
-| M-010 | MCP server settings UI | CANVAS | 1 | M-001 |
+Tairseach requests these macOS permissions:
 
-**Total: 10 tasks, 3 agents**
+| Permission | Purpose |
+|-----------|---------|
+| **Contacts** | Access Contacts.app data |
+| **Calendar** | Access Calendar.app events |
+| **Reminders** | Access Reminders.app tasks |
+| **Location** | Get current location |
+| **Photos** | Access Photos library |
+| **Camera** | Use camera |
+| **Microphone** | Use microphone |
+| **Screen Recording** | Capture screenshots |
+| **Accessibility** | Control UI elements |
+| **Full Disk Access** | Read protected files |
+| **Automation** | Send AppleEvents |
 
----
+All permissions are optional. Tairseach shows clear UI for managing them.
 
-## Goal 4: Context Monitor
+### Credentials
 
-### Overview
+Tairseach stores credentials in `~/.tairseach/auth/`:
 
-Real-time token usage tracking similar to CodexBar. Shows usage per session, cost estimates, and alerts when approaching limits.
+- **Encrypted with AES-256-GCM**
+- **Master key in macOS Keychain** (hardware-backed on Apple Silicon)
+- **Never exposed to agents** (Tier 1 proxy mode)
 
-### Data Source
-
-OpenClaw gateway exposes session data via:
-- `sessions_list` — List active sessions
-- `session_status` — Get usage for a session
-- WebSocket events for real-time updates
-
-### UI Design
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  📊 Monitor                                                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Total Usage Today                     Cost: $4.23          │
-│  ██████████████████░░░░░░░░░░ 68%     ───────────────────  │
-│  136,000 / 200,000 tokens              $2.89 input          │
-│                                        $1.34 output         │
-│                                                             │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│                                                             │
-│  Active Sessions                                            │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ 🪶 suibhne:main           claude-opus  45,230 tokens │  │
-│  │    Last: 2 min ago        ████████░░░░  45%         │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ 🌊 muirgen:slack:naonur   claude-opus  32,100 tokens │  │
-│  │    Last: 15 min ago       █████░░░░░░░  32%         │  │
-│  ├──────────────────────────────────────────────────────┤  │
-│  │ 🔥 becuma:telegram        kimi         8,450 tokens  │  │
-│  │    Last: 1 hour ago       ██░░░░░░░░░░  8%          │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                             │
-│  [Refresh]  [Export CSV]  [Clear History]                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Tasks — Goal 4
-
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| T-001 | Gateway sessions API integration | NEXUS | 1 | — |
-| T-002 | WebSocket connection for real-time updates | NEXUS | 1 | T-001 |
-| T-003 | Usage store (Pinia) with history | NEXUS | 1 | T-001 |
-| T-004 | UsageGauge.vue component | CANVAS | 1 | — |
-| T-005 | SessionList.vue component | CANVAS | 1 | T-001 |
-| T-006 | MonitorView.vue full tab | CANVAS | 1 | T-004, T-005 |
-| T-007 | Cost calculation utilities | NEXUS | 1 | — |
-| T-008 | CSV export functionality | NEXUS | 1 | T-003 |
-| T-009 | Usage alerts/notifications | CANVAS | 1 | T-003 |
-
-**Total: 9 tasks, 2 agents**
+Supported providers:
+- Google (OAuth 2.0 with PKCE)
+- Slack (OAuth 2.0)
+- 1Password (API token)
+- Datadog (API key)
+- Custom API keys
 
 ---
 
-## Goal 5: Agent Profiles
+## Security Model
 
-### Overview
+### Permission Enforcement
 
-Visual identity management for agents. Store profile pictures and metadata in `~/.tairseach/profiles/`.
-
-### Profile Structure
-
-```json
-// ~/.tairseach/profiles/suibhne/profile.json
-{
-  "agentId": "suibhne",
-  "displayName": "Buile Suibhne",
-  "avatarPath": "avatar.png",
-  "emoji": "🪶",
-  "color": "#C9A227",
-  "description": "The mad king, now digital geilt",
-  "createdAt": "2026-01-25T00:00:00Z",
-  "updatedAt": "2026-02-03T00:00:00Z"
-}
-```
-
-### UI Design
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  👤 Agent Profiles                                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐   │
-│  │   [Avatar]    │  │   [Avatar]    │  │   [Avatar]    │   │
-│  │      🪶       │  │      🌊       │  │      🔥       │   │
-│  │               │  │               │  │               │   │
-│  │   Suibhne     │  │   Muirgen     │  │   Becuma      │   │
-│  │  claude-opus  │  │  claude-opus  │  │    kimi       │   │
-│  │               │  │               │  │               │   │
-│  │    [Edit]     │  │    [Edit]     │  │    [Edit]     │   │
-│  └───────────────┘  └───────────────┘  └───────────────┘   │
-│                                                             │
-│  ┌───────────────┐                                          │
-│  │      ➕       │                                          │
-│  │   Add Agent   │                                          │
-│  └───────────────┘                                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-
-Edit Modal:
-┌─────────────────────────────────────────┐
-│  Edit Profile: Suibhne                  │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌─────────┐  Display Name:             │
-│  │ [image] │  [Buile Suibhne        ]   │
-│  │   🪶    │                            │
-│  │ Change  │  Emoji: [🪶]               │
-│  └─────────┘                            │
-│              Color: [█ #C9A227]         │
-│                                         │
-│              Description:               │
-│              [The mad king, now...]     │
-│                                         │
-│         [Cancel]  [Save]                │
-└─────────────────────────────────────────┘
-```
-
-### Tasks — Goal 5
-
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| A-001 | Profile storage module (Rust) | FORGE | 1 | — |
-| A-002 | Avatar image handling (resize, save) | FORGE | 1 | A-001 |
-| A-003 | Profiles store (Pinia) | NEXUS | 1 | A-001 |
-| A-004 | AgentCard.vue component | CANVAS | 1 | — |
-| A-005 | AvatarUpload.vue component | CANVAS | 1 | A-002 |
-| A-006 | ProfileEditModal.vue | CANVAS | 1 | A-004, A-005 |
-| A-007 | ProfilesView.vue full tab | CANVAS | 1 | A-004, A-006 |
-| A-008 | Sync with OpenClaw agent configs | NEXUS | 1 | A-001 |
-
-**Total: 8 tasks, 3 agents**
-
----
-
-## Goal 6: Auth Broker (OAuth Persistence)
-
-### Overview
-
-CLI tools like GOG (Google Workspace CLI) have a persistent problem: each CLI invocation is a new process, so macOS "Always Allow" prompts for Keychain access don't persist. The user has to click "Allow" repeatedly.
-
-**The Problem:**
-```
-$ gog gmail send ...
-[macOS Keychain prompt: "gog wants to access your login keychain"]
-→ User clicks "Always Allow"
-→ Next invocation: same prompt appears again (new process, new permission check)
-```
-
-**The Solution:**
-Tairseach acts as a persistent OAuth broker. CLI tools communicate with Tairseach (which is already running and has Keychain access granted once), and Tairseach handles the actual OAuth token management.
-
-### Architecture
-
-```
-┌─────────────────┐     ┌─────────────────────────────────────┐
-│   CLI Tool      │     │           Tairseach.app              │
-│   (gog, etc.)   │     │                                      │
-│                 │     │  ┌──────────────────────────────┐   │
-│  $ tairseach    │────►│  │       Auth Broker             │   │
-│    gog gmail    │     │  │  ┌─────────┐  ┌───────────┐  │   │
-│    send ...     │     │  │  │ Token   │  │ OAuth     │  │   │
-│                 │◄────│  │  │ Store   │  │ Refresh   │  │   │
-│  (gets result)  │     │  │  │(Keychn) │  │ Logic     │  │   │
-│                 │     │  │  └─────────┘  └───────────┘  │   │
-└─────────────────┘     │  └──────────────────────────────┘   │
-                        │                                      │
-                        │  macOS Keychain (accessed ONCE)     │
-                        └─────────────────────────────────────┘
-```
-
-### Supported Services
-
-| Service | CLI Tool | OAuth Scopes |
-|---------|----------|--------------|
-| Google Workspace | GOG | Gmail, Calendar, Drive, Contacts |
-| Microsoft 365 | (future) | Outlook, OneDrive |
-| GitHub | gh (passthrough) | repo, gist, etc. |
-
-### Token Storage
-
-Tokens stored in **macOS Keychain** via Security framework:
-- Service: `com.tairseach.oauth.<provider>`
-- Account: User's email/ID
-- Encrypted at rest by macOS
+Every socket request is gated by permission checks:
 
 ```rust
-// src-tauri/src/auth/tokens.rs
-
-use security_framework::keychain::SecKeychain;
-
-pub struct TokenStore {
-    keychain: SecKeychain,
-}
-
-impl TokenStore {
-    pub fn get_token(&self, service: &str) -> Result<OAuthToken, Error> {
-        let item = self.keychain.find_generic_password(
-            &format!("com.tairseach.oauth.{}", service),
-            &self.account_id,
-        )?;
-        serde_json::from_slice(&item.password)
-    }
-    
-    pub fn store_token(&self, service: &str, token: &OAuthToken) -> Result<(), Error> {
-        self.keychain.set_generic_password(
-            &format!("com.tairseach.oauth.{}", service),
-            &self.account_id,
-            &serde_json::to_vec(token)?,
-        )
-    }
-    
-    pub async fn refresh_if_needed(&self, service: &str) -> Result<OAuthToken, Error> {
-        let token = self.get_token(service)?;
-        if token.is_expired() {
-            let refreshed = self.refresh_token(service, &token.refresh_token).await?;
-            self.store_token(service, &refreshed)?;
-            Ok(refreshed)
-        } else {
-            Ok(token)
-        }
+if let Some(perm) = required_permission("contacts.list") {
+    if !is_granted(perm) {
+        return error("Permission denied");
     }
 }
 ```
 
-### CLI Passthrough
+Agents cannot bypass macOS TCC.
 
-CLI tools invoke Tairseach instead of directly calling the service:
+### Credential Security
 
-```bash
-# Instead of:
-$ gog gmail send --to foo@bar.com --subject "Hello" --body "World"
+**At Rest:**
+- AES-256-GCM encrypted files
+- Master key in Keychain (never on disk)
+- Metadata index doesn't contain secrets
 
-# Use:
-$ tairseach gog gmail send --to foo@bar.com --subject "Hello" --body "World"
+**In Transit:**
+- Tier 1: Credentials stay in Tairseach's memory
+- Tier 2: Short-lived tokens (max 1 hour), audit logged
 
-# Or configure GOG to use Tairseach as its credential helper
-```
+**Audit Trail:**
+- All credential access logged to `~/.tairseach/logs/audit.jsonl`
+- Logs sanitized (no token values)
+- Rotated daily, kept 30 days
 
-Tairseach's CLI interface:
+### Manifest Security
 
-```bash
-# Passthrough to GOG with Tairseach-managed credentials
-tairseach gog <gog-args>
+**Trust Levels:**
 
-# Direct token management
-tairseach auth status              # Show connected services
-tairseach auth connect google      # Initiate OAuth flow
-tairseach auth disconnect google   # Revoke and remove tokens
-tairseach auth refresh google      # Force token refresh
-```
+| Source | Trust | Sandboxing |
+|--------|-------|------------|
+| Core (ships with app) | Trusted | None |
+| Integrations (ships with app) | Trusted | Light |
+| Community (user-installed) | **Untrusted** | **Full sandbox** |
 
-### OAuth Flow
-
-1. User clicks "Connect Google" in Tairseach UI
-2. Tairseach opens browser to Google OAuth consent
-3. Google redirects to `tairseach://oauth/callback?code=...`
-4. Tairseach exchanges code for tokens
-5. Tokens stored in macOS Keychain
-6. macOS prompts ONCE for Keychain access
-7. User clicks "Always Allow"
-8. All future CLI invocations use Tairseach → no more prompts
-
-### UI Design
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  🔑 Connected Services                                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  🔵 Google Workspace                    ● Connected  │   │
-│  │     geiltalasdair@gmail.com                         │   │
-│  │     Scopes: Gmail, Calendar, Drive, Contacts        │   │
-│  │     Token expires: 47 minutes                       │   │
-│  │     Last used: 2 minutes ago                        │   │
-│  │                                                     │   │
-│  │     [Refresh Token]  [Disconnect]                   │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  ⬜ Microsoft 365                       ○ Not Setup  │   │
-│  │                                                     │   │
-│  │     [Connect Microsoft Account]                     │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│                                                             │
-│  CLI Usage:                                                 │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  $ tairseach gog gmail send --to ...                │   │
-│  │  $ tairseach gog calendar list                      │   │
-│  │  $ tairseach gog drive list                         │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### GOG Integration
-
-Update GOG to optionally use Tairseach as credential provider:
-
-```bash
-# GOG config (~/.config/gog/config.yaml)
-credential_helper: tairseach
-
-# Or environment variable
-GOG_CREDENTIAL_HELPER=tairseach gog gmail send ...
-```
-
-When configured, GOG calls:
-```bash
-tairseach auth get-token google
-```
-
-And receives a valid access token on stdout.
-
-### Tasks — Goal 6
-
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| O-001 | Keychain token storage module (Rust) | FORGE | 1 | — |
-| O-002 | Google OAuth flow implementation | CIPHER | 1 | O-001 |
-| O-003 | Token refresh logic | CIPHER | 1 | O-001, O-002 |
-| O-004 | Deep link handler (`tairseach://`) | FORGE | 1 | — |
-| O-005 | CLI passthrough command (`tairseach gog ...`) | FORGE | 1 | O-001 |
-| O-006 | Auth store (Pinia) | NEXUS | 1 | O-001 |
-| O-007 | ServiceCard.vue component | CANVAS | 1 | — |
-| O-008 | OAuthConnect.vue (OAuth flow UI) | CANVAS | 1 | O-002 |
-| O-009 | AuthView.vue full tab | CANVAS | 1 | O-007, O-008 |
-| O-010 | Token status display (expiry, last used) | CANVAS | 1 | O-006 |
-| O-011 | GOG credential helper integration | NEXUS | 1 | O-005 |
-| O-012 | Microsoft OAuth (future, stub) | CIPHER | 1 | O-002 |
-
-**Total: 12 tasks, 4 agents**
+**Community Manifest Safeguards:**
+- Installation requires user approval
+- Scripts run in `sandbox-exec` (macOS)
+- Network access opt-in only
+- Path restrictions (no `../../` traversal)
+- Hash verification (detect tampering)
 
 ---
 
-## Shared Infrastructure Tasks
+## Known Issues & Limitations
 
-| Task ID | Description | Agent | Count | Depends On |
-|---------|-------------|-------|-------|------------|
-| S-001 | Tauri project scaffold with Vue 3 | NEXUS | 1 | — |
-| S-002 | Naonúr theme CSS (colors, typography) | CANVAS | 1 | — |
-| S-003 | Tab navigation component | CANVAS | 1 | S-002 |
-| S-004 | Dashboard view (overview) | CANVAS | 1 | S-003 |
-| S-005 | Toast notification system | CANVAS | 1 | — |
-| S-006 | App icon design (Naonúr themed) | CANVAS | 1 | — |
-| S-007 | GitHub repo setup + CI | NEXUS | 1 | S-001 |
-| S-008 | README and documentation | ECHO | 1 | All |
+### CRITICAL Security Findings (Must Fix Before v2)
 
-**Total: 8 tasks, 3 agents**
+From security audits by Nechtan and Fedelm:
 
----
+1. ⚠️ **Master key exposed in CLI args** — `security` command shows key in `ps` output
+   - **Fix:** Replace with `security-framework` crate
+2. ⚠️ **OAuth secrets in CLI args** — `curl` command exposes secrets
+   - **Fix:** Replace with `reqwest` or pass via stdin
+3. ⚠️ **No UID verification on socket** — 0600 permissions only defense
+   - **Fix:** Add explicit UID check on connection
+4. ⚠️ **files.write has no path restrictions** — Can write anywhere
+   - **Fix:** Implement path allowlist/denylist
+5. ⚠️ **automation.run enables arbitrary code execution**
+   - **Fix:** Add script allowlist or exclude from MCP exposure
 
-## Task Summary
+### Incomplete Features
 
-| Goal | Tasks | Primary Agents |
-|------|-------|----------------|
-| **Shared Infrastructure** | 8 | NEXUS, CANVAS, ECHO |
-| **1. Permissions Proxy** | 10 | FORGE, CANVAS, NEXUS, CIPHER |
-| **2. Configuration Manager** | 10 | FORGE, NEXUS, CANVAS |
-| **3. MCP Server** | 10 | CIPHER, FORGE, CANVAS |
-| **4. Context Monitor** | 9 | NEXUS, CANVAS |
-| **5. Agent Profiles** | 8 | FORGE, NEXUS, CANVAS |
-| **6. Auth Broker** | 12 | FORGE, CIPHER, NEXUS, CANVAS |
-| **Total** | **67 tasks** | |
-
-### Agent Allocation
-
-| Agent | Specialization | Task Count |
-|-------|----------------|------------|
-| **FORGE** | Rust backend, system APIs, FFI | 15 |
-| **CANVAS** | Vue components, UI/UX, styling | 22 |
-| **NEXUS** | State management, integrations, IPC | 16 |
-| **CIPHER** | MCP protocol, security, OAuth | 9 |
-| **ECHO** | Documentation | 1 |
-
-### Recommended Parallel Execution
-
-**Phase 1: Foundation** (S-001 → S-007)
-- NEXUS: Tauri scaffold, stores setup
-- CANVAS: Theme, navigation, dashboard
-
-**Phase 2: Permissions** (P-001 → P-010) — PRIORITY
-- FORGE: Rust permission APIs
-- CANVAS: Permission UI components
-- NEXUS: IPC bridge
-
-**Phase 3: Config + Monitor** (C-001 → C-010, T-001 → T-009)
-- FORGE: Config file handling
-- NEXUS: Gateway integration
-- CANVAS: Config + Monitor views
-
-**Phase 4: MCP + Profiles + Auth** (M-001 → M-010, A-001 → A-008, O-001 → O-012)
-- CIPHER: MCP server + OAuth flows
-- FORGE: System tools + Keychain integration
-- CANVAS: Profile UI + Auth UI
-- NEXUS: GOG integration
+- Calendar `update_event` and `delete_event` are stubbed
+- Photos handler not implemented
+- MCP bridge is scaffolded but not functional
+- Activity Feed, Cron Calendar, Memory Search UIs are placeholders
 
 ---
 
-## Open Questions
+## Roadmap
 
-1. **MCP Port** — What port should the MCP server listen on? Default 18799?
-2. **Gateway Auth** — How should Tairseach authenticate with the gateway? Same token as CLI?
-3. **Auto-start** — Should Tairseach auto-start on login? Menu bar mode?
-4. **Update mechanism** — How will Tairseach update itself?
+### Phase 1: Security Hardening (Week 1)
+
+- [ ] Fix CRITICAL findings (master key, OAuth, UID check, path restrictions)
+- [ ] Implement credential tier enforcement
+- [ ] Add script sandboxing for community manifests
+
+### Phase 2: Manifest System (Week 1-2)
+
+- [ ] Implement manifest loader with validation
+- [ ] Implement capability router
+- [ ] Build hot-reload with filesystem watcher
+- [ ] Create core manifests (contacts, calendar, etc.)
+
+### Phase 3: MCP Bridge (Week 2)
+
+- [ ] Complete tairseach-mcp bridge binary
+- [ ] Implement stdio transport
+- [ ] Test with OpenClaw integration
+- [ ] Write MCP setup quickref
+
+### Phase 4: Google Workspace (Week 2-3)
+
+- [ ] Gmail handler (proxy mode)
+- [ ] Calendar API handler (proxy mode)
+- [ ] Drive handler (proxy mode)
+- [ ] OAuth flow in Tairseach UI
+
+### Phase 5: UI Buildout (Week 3-4)
+
+- [ ] Activity Feed (live audit log)
+- [ ] Cron Calendar (scheduled jobs)
+- [ ] Memory Search (cross-agent search)
+- [ ] Manifest Manager (browse, install, update)
+- [ ] Credential Manager (import, rotate, revoke)
+
+### Phase 6: Community Ecosystem (Week 4+)
+
+- [ ] Manifest registry (GitHub-based)
+- [ ] Manifest submission workflow
+- [ ] Community manifest validation
+- [ ] Auto-update system
 
 ---
 
-## References
+## Contributing
 
-- [Tauri 2.0 Documentation](https://tauri.app/v2/)
-- [macOS TCC Database](https://www.rainforestqa.com/blog/macos-tcc-db-deep-dive)
-- [MCP Protocol Spec](https://modelcontextprotocol.io)
-- [OpenClaw Documentation](https://docs.openclaw.ai)
-- [Dieah Project](~/environment/dieah/) — UI scaffold reference
-- [openclaw-monitor](~/environment/openclaw-monitor/) — Config manager reference
+Tairseach is developed by the Naonúr household agents:
+
+| Agent | Role | Model |
+|-------|------|-------|
+| **Suibhne** | Orchestrator, spec authority | Claude Opus 4.6 |
+| **Muirgen** | Primary implementation (Rust) | Kimi K2.5 |
+| **Gwrhyr** | MCP protocol, UI performance | GPT-5.3 |
+| **Fedelm** | Security architecture | Gemini 3 Pro |
+| **Nechtan** | Security audit | Claude Opus 4.6 |
+| **Tlachtga** | Build system, CI | GPT-5.3 |
+| **Lomna** | Verification, testing | Claude Sonnet 4.5 |
+| **Senchán** | Documentation | Claude Sonnet 4.5 |
+
+For detailed agent roles, see `~/naonur/dail/governance/households/`.
+
+### Development Workflow
+
+1. **Design phase** — Write ADRs, specs, threat models in `~/naonur/dail/dev/work-orders/WO-2026-0001-tairseach-dreacht/30-artifacts/`
+2. **Implementation** — Agents work in parallel per household assignments
+3. **Verification** — Lomna tests all implementations
+4. **Documentation** — Senchán writes architecture docs and quickrefs
+5. **Review** — Suibhne final review before merge
+
+All work tracked in Work Order WO-2026-0001.
 
 ---
 
-*🪶 The threshold awaits.*
+## Resources
+
+- **Architecture Documentation:** `~/naonur/dail/projects/tairseach/architecture.md`
+- **Quick References:** `~/naonur/dail/projects/tairseach/quickrefs/`
+- **Design Artifacts:** `~/naonur/dail/dev/work-orders/WO-2026-0001-tairseach-dreacht/30-artifacts/`
+- **Work Order:** `~/naonur/dail/dev/work-orders/WO-2026-0001-tairseach-dreacht/`
+- **Codebase:** `~/environment/tairseach/`
+
+---
+
+*🪶 The threshold doesn't just let you through — it holds the keys, knows the way, and guards the passage.*
+
+**Last Updated:** 2026-02-08 by Senchán Torpéist

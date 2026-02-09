@@ -1,0 +1,90 @@
+#!/bin/bash
+# gog-proxy: Tairseach-backed gog wrapper
+#
+# Fetches the file-keyring passphrase from Tairseach's auth broker,
+# then executes gog with the file backend configured. This eliminates
+# macOS Keychain access dialogs in background/automated contexts.
+#
+# Usage:
+#   gog-proxy <gog-args...>
+#   GOG_ACCOUNT=user@example.com gog-proxy gmail labels list
+#
+# Install:
+#   ln -s ~/environment/tairseach/scripts/gog-proxy ~/.local/bin/gog-proxy
+#   alias gog='gog-proxy'  # in .zshrc
+#
+# Requires: socat, jq, Tairseach running
+
+set -euo pipefail
+
+SOCK="${TAIRSEACH_SOCK:-$HOME/.tairseach/tairseach.sock}"
+
+# Verify Tairseach is running
+if [ ! -S "$SOCK" ]; then
+    echo "Error: Tairseach not running (no socket at $SOCK)" >&2
+    echo "Start Tairseach.app first, or set TAIRSEACH_SOCK to override." >&2
+    exit 1
+fi
+
+# Check dependencies
+for cmd in socat jq; do
+    if ! command -v "$cmd" &>/dev/null; then
+        echo "Error: $cmd is required but not found. Install via: brew install $cmd" >&2
+        exit 1
+    fi
+done
+
+# Request passphrase from Tairseach auth broker
+RESPONSE=$(echo '{"jsonrpc":"2.0","id":1,"method":"auth.gogPassphrase","params":{}}' \
+    | socat - UNIX-CONNECT:"$SOCK" 2>/dev/null)
+
+if [ -z "$RESPONSE" ]; then
+    echo "Error: No response from Tairseach socket" >&2
+    exit 1
+fi
+
+# Check for error
+ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
+if [ -n "$ERROR" ]; then
+    echo "Error: Tairseach auth broker: $ERROR" >&2
+    exit 1
+fi
+
+PASSPHRASE=$(echo "$RESPONSE" | jq -r '.result.passphrase // empty' 2>/dev/null)
+
+if [ -z "$PASSPHRASE" ]; then
+    echo "Error: Failed to get passphrase from Tairseach auth broker" >&2
+    echo "Response: $RESPONSE" >&2
+    exit 1
+fi
+
+# Find the real gog binary
+GOG_BIN="${GOG_REAL_PATH:-}"
+if [ -z "$GOG_BIN" ]; then
+    # Search PATH but skip ourselves
+    SELF=$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")
+    GOG_BIN=$(
+        IFS=':'
+        for dir in $PATH; do
+            candidate="$dir/gog"
+            if [ -x "$candidate" ] && [ "$(realpath "$candidate" 2>/dev/null || echo "$candidate")" != "$SELF" ]; then
+                echo "$candidate"
+                break
+            fi
+        done
+    )
+fi
+
+if [ -z "$GOG_BIN" ] || [ ! -x "$GOG_BIN" ]; then
+    # Fallback to common Homebrew location
+    GOG_BIN="/opt/homebrew/bin/gog"
+    if [ ! -x "$GOG_BIN" ]; then
+        echo "Error: gog binary not found. Set GOG_REAL_PATH or ensure gog is in PATH." >&2
+        exit 1
+    fi
+fi
+
+# Execute gog with file backend
+export GOG_KEYRING_BACKEND=file
+export GOG_KEYRING_PASSWORD="$PASSPHRASE"
+exec "$GOG_BIN" "$@"

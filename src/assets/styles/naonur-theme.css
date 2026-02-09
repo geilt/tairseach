@@ -1,0 +1,374 @@
+/**
+ * Naonúr Theme — Tairseach Design System
+ * "The threshold between worlds, wrapped in ancient gold"
+ */
+
+/* ═══════════════════════════════════════════════════════════════
+   FONTS
+   ═══════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES (NAONÚR PALETTE)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Primary — Gold, the thread of connection */
+  --naonur-gold: #C9A227;
+  --naonur-gold-dim: #8B7019;
+  --naonur-gold-bright: #E5C363;
+  --naonur-gold-glow: rgba(201, 162, 39, 0.3);
+  
+  /* Backgrounds — Depths of the digital void */
+  --naonur-void: #0A0A0F;
+  --naonur-shadow: #12121A;
+  --naonur-mist: #1A1A24;
+  --naonur-fog: #252532;
+  --naonur-cloud: #32323F;
+  
+  /* Text — From bone to smoke */
+  --naonur-bone: #E8E4D9;
+  --naonur-ash: #9A978F;
+  --naonur-smoke: #5A5850;
+  
+  /* Status — Nature's signals */
+  --naonur-moss: #4A7C59;
+  --naonur-moss-dim: #3A5C45;
+  --naonur-rust: #8B4513;
+  --naonur-rust-dim: #6B3510;
+  --naonur-blood: #8B0000;
+  --naonur-blood-dim: #6B0000;
+  --naonur-water: #4A7C8C;
+  --naonur-water-dim: #3A5C6C;
+  
+  /* Typography */
+  --font-display: 'Cinzel', serif;
+  --font-body: 'Cormorant Garamond', serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  /* Spacing scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px var(--naonur-gold-glow);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--naonur-bone);
+  background-color: var(--naonur-void);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--naonur-bone);
+  margin: 0;
+}
+
+h1 {
+  font-size: 2.5rem;
+  letter-spacing: 0.1em;
+}
+
+h2 {
+  font-size: 1.75rem;
+}
+
+h3 {
+  font-size: 1.25rem;
+}
+
+p {
+  margin: 0 0 var(--space-md);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+a {
+  color: var(--naonur-gold);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--naonur-gold-bright);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBAR — SUBTLE, NAONÚR STYLED
+   ═══════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--naonur-void);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--naonur-fog);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--naonur-cloud);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTONS
+   ═══════════════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.btn-primary {
+  background: var(--naonur-gold);
+  color: var(--naonur-void);
+  border-color: var(--naonur-gold);
+}
+
+.btn-primary:hover {
+  background: var(--naonur-gold-bright);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--naonur-gold);
+  border-color: var(--naonur-gold-dim);
+}
+
+.btn-secondary:hover {
+  background: var(--naonur-gold-dim);
+  color: var(--naonur-bone);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--naonur-ash);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  color: var(--naonur-bone);
+  background: var(--naonur-fog);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARDS
+   ═══════════════════════════════════════════════════════════════ */
+
+.card {
+  background: var(--naonur-shadow);
+  border: 1px solid var(--naonur-fog);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  transition: all var(--transition-normal);
+}
+
+.card:hover {
+  border-color: var(--naonur-gold-dim);
+  box-shadow: var(--shadow-md);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+}
+
+.card-body {
+  color: var(--naonur-ash);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INPUTS
+   ═══════════════════════════════════════════════════════════════ */
+
+.input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  color: var(--naonur-bone);
+  background: var(--naonur-mist);
+  border: 1px solid var(--naonur-fog);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--naonur-gold);
+  box-shadow: 0 0 0 2px var(--naonur-gold-glow);
+}
+
+.input::placeholder {
+  color: var(--naonur-smoke);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════ */
+
+.text-gold { color: var(--naonur-gold); }
+.text-bone { color: var(--naonur-bone); }
+.text-ash { color: var(--naonur-ash); }
+.text-smoke { color: var(--naonur-smoke); }
+.text-moss { color: var(--naonur-moss); }
+.text-rust { color: var(--naonur-rust); }
+.text-blood { color: var(--naonur-blood); }
+.text-water { color: var(--naonur-water); }
+
+.bg-void { background-color: var(--naonur-void); }
+.bg-shadow { background-color: var(--naonur-shadow); }
+.bg-mist { background-color: var(--naonur-mist); }
+.bg-fog { background-color: var(--naonur-fog); }
+
+.font-display { font-family: var(--font-display); }
+.font-body { font-family: var(--font-body); }
+.font-mono { font-family: var(--font-mono); }
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-normal) ease-out;
+}
+
+.animate-slide-in {
+  animation: slideInRight var(--transition-normal) ease-out;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CELTIC DECORATIONS (optional flourishes)
+   ═══════════════════════════════════════════════════════════════ */
+
+.celtic-border {
+  border-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--naonur-gold-dim) 20%,
+    var(--naonur-gold) 50%,
+    var(--naonur-gold-dim) 80%,
+    transparent 100%
+  ) 1;
+}
+
+.celtic-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--naonur-gold-dim) 20%,
+    var(--naonur-gold) 50%,
+    var(--naonur-gold-dim) 80%,
+    transparent 100%
+  );
+  margin: var(--space-lg) 0;
+}

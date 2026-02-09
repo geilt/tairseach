@@ -1,0 +1,104 @@
+/**
+ * Tairseach — Main Stylesheet
+ * Import order: fonts/theme → Tailwind
+ */
+
+/* Import Naonúr design system (must be first) */
+@import './naonur-theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+   TAILWIND COMPONENT LAYER — NAONÚR STYLED
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* Naonúr-styled card */
+  .naonur-card {
+    @apply bg-naonur-shadow border border-naonur-fog rounded-xl p-6;
+    @apply transition-all duration-300;
+    @apply hover:border-naonur-gold-dim hover:shadow-md;
+  }
+
+  /* Gold accent bar */
+  .gold-accent {
+    @apply w-1 bg-naonur-gold rounded-full;
+  }
+
+  /* Status indicators */
+  .status-granted {
+    @apply bg-naonur-moss text-naonur-bone;
+  }
+  
+  .status-denied {
+    @apply bg-naonur-blood text-naonur-bone;
+  }
+  
+  .status-pending {
+    @apply bg-naonur-rust text-naonur-bone;
+  }
+  
+  .status-unknown {
+    @apply bg-naonur-fog text-naonur-ash;
+  }
+
+  /* Sidebar navigation item */
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg;
+    @apply text-naonur-ash transition-all duration-200;
+    @apply hover:bg-naonur-mist hover:text-naonur-bone;
+  }
+
+  .nav-item.active {
+    @apply bg-naonur-mist text-naonur-gold;
+    @apply border-l-2 border-naonur-gold;
+  }
+
+  /* Threshold motif — horizontal divider with fade */
+  .threshold-line {
+    @apply h-px w-full;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      #252532 20%,
+      #8B7019 50%,
+      #252532 80%,
+      transparent 100%
+    );
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITY LAYER
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  /* Text glow effect */
+  .text-glow {
+    text-shadow: 0 0 10px rgba(201, 162, 39, 0.5);
+  }
+
+  /* Feather watermark background (subtle) */
+  .bg-feather {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' opacity='0.02'%3E%3Cpath d='M50 5 C30 25, 20 50, 50 95 C80 50, 70 25, 50 5' fill='%23C9A227'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right bottom;
+    background-size: 300px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TAURI-SPECIFIC — Window draggable area
+   ═══════════════════════════════════════════════════════════════ */
+
+.titlebar {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.titlebar button, .titlebar a {
+  -webkit-app-region: no-drag;
+}

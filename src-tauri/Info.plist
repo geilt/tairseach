@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Privacy Usage Descriptions - REQUIRED for permission prompts -->
+    
+    <!-- Contacts -->
+    <key>NSContactsUsageDescription</key>
+    <string>Tairseach needs access to Contacts to help OpenClaw agents manage your address book.</string>
+    
+    <!-- Calendar -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>Tairseach needs access to Calendar to help OpenClaw agents manage your schedule.</string>
+    
+    <!-- Reminders -->
+    <key>NSRemindersUsageDescription</key>
+    <string>Tairseach needs access to Reminders to help OpenClaw agents manage your tasks.</string>
+    
+    <!-- Photos -->
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Tairseach needs access to Photos to help OpenClaw agents work with your photo library.</string>
+    
+    <!-- Camera -->
+    <key>NSCameraUsageDescription</key>
+    <string>Tairseach needs Camera access to help OpenClaw agents capture images when requested.</string>
+    
+    <!-- Microphone -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Tairseach needs Microphone access to help OpenClaw agents with audio input when requested.</string>
+    
+    <!-- Location -->
+    <key>NSLocationUsageDescription</key>
+    <string>Tairseach needs Location access to help OpenClaw agents with location-aware tasks.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Tairseach needs Location access to help OpenClaw agents with location-aware tasks.</string>
+    
+    <!-- Automation -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Tairseach needs Automation access to control other applications on behalf of OpenClaw agents.</string>
+    
+    <!-- System Administration -->
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>Tairseach needs elevated access to manage system permissions for OpenClaw agents.</string>
+</dict>
+</plist>
