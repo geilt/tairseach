@@ -10,7 +10,7 @@ use crate::protocol::{McpTool, ToolAnnotations, ToolContent, ToolsCallResponse, 
 
 #[derive(Debug, Clone)]
 pub struct ToolIndexEntry {
-    pub socket_method: String,
+    pub tool_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,16 +74,17 @@ impl ToolRegistry {
                     continue;
                 }
 
-                let Some(socket_method) = manifest.implementation.methods.get(&t.name).cloned() else {
+                // Verify the tool has a method mapping (validation)
+                if !manifest.implementation.methods.contains_key(&t.name) {
                     continue;
-                };
+                }
 
                 let mcp_name = format!("tairseach_{}_{}", manifest.id.replace('-', "_"), t.name);
                 if allowlist
                     .insert(
                         mcp_name.clone(),
                         ToolIndexEntry {
-                            socket_method,
+                            tool_name: t.name.clone(),
                         },
                     )
                     .is_some()
