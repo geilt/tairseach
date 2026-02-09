@@ -61,8 +61,9 @@ fn main() {
         }
     }
 
-    println!("cargo:rerun-if-changed={}", release_source.display());
-    println!("cargo:rerun-if-changed={}", debug_source.display());
+    // Note: We do NOT use cargo:rerun-if-changed for the sidecar binaries.
+    // The sidecar is built explicitly via beforeBuildCommand in tauri.conf.json.
+    // Watching the binary would create a rebuild loop since we copy it during build.
 
     // Keep existing Tauri build behavior.
     tauri_build::build();
