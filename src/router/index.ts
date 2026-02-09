@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { title: 'Configuration' },
     },
     {
+      path: '/settings/google',
+      name: 'settings-google',
+      component: () => import('../views/GoogleSettingsView.vue'),
+      meta: { title: 'Google OAuth Settings' },
+    },
+    {
       path: '/monitor',
       name: 'monitor',
       component: () => import('../views/MonitorView.vue'),

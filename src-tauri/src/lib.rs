@@ -161,6 +161,10 @@ pub fn run() {
             config::get_config,
             config::set_config,
             config::get_provider_models,
+            config::get_google_oauth_config,
+            config::save_google_oauth_config,
+            config::test_google_oauth_config,
+            config::get_google_oauth_status,
             // Monitor
             monitor::get_events,
             monitor::get_manifest_summary,
