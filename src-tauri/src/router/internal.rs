@@ -61,6 +61,8 @@ pub async fn dispatch(
         "auth" => handlers::auth::handle(action, params, id).await,
         "permissions" => handlers::permissions::handle(action, params, id).await,
         "config" => handlers::config::handle(action, params, id).await,
+        "gmail" => handlers::gmail::handle(action, params, id).await,
+        "gcalendar" => handlers::google_calendar::handle(action, params, id).await,
         _ => JsonRpcResponse::error(
             id,
             -32601,

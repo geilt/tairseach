@@ -4,7 +4,7 @@
 //! Handles pagination, rate limiting, and error responses according to Google API
 //! REST conventions.
 
-use reqwest::{Client, Method, RequestBuilder, StatusCode};
+use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::Value;
 use std::time::Duration;
 use tracing::{debug, error, warn};
@@ -64,6 +64,7 @@ impl GoogleClient {
     }
 
     /// Make an authenticated PATCH request with JSON body
+    #[allow(dead_code)]
     pub async fn patch(&self, url: &str, body: &Value) -> Result<Value, String> {
         let builder = self
             .client

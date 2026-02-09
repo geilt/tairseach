@@ -1,0 +1,251 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "google-gmail",
+  "name": "Gmail",
+  "description": "Read, search, send, and manage Gmail messages via Google Gmail API v1.",
+  "version": "1.0.0",
+  "category": "communication",
+  "requires": {
+    "credentials": [
+      {
+        "id": "google-oauth",
+        "provider": "google",
+        "kind": "oauth2",
+        "scopes": [
+          "https://www.googleapis.com/auth/gmail.modify",
+          "https://www.googleapis.com/auth/gmail.settings.basic"
+        ]
+      }
+    ],
+    "permissions": []
+  },
+  "tools": [
+    {
+      "name": "gmail_list_messages",
+      "description": "List messages matching a query (same syntax as Gmail web UI). Returns message IDs and thread IDs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          },
+          "query": {
+            "type": "string",
+            "description": "Gmail search query (e.g., 'is:unread', 'from:user@example.com after:2026/02/01')"
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100,
+            "description": "Maximum number of messages to return"
+          },
+          "labelIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Filter by label IDs (e.g., ['INBOX', 'UNREAD'])"
+          }
+        },
+        "required": ["account"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["messages", "count"],
+        "properties": {
+          "messages": { "type": "array" },
+          "count": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "gmail_get_message",
+      "description": "Get full details of a message by ID, including headers, body, and attachments.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Message ID"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["full", "metadata", "minimal", "raw"],
+            "default": "full",
+            "description": "Response format"
+          }
+        },
+        "required": ["account", "id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "gmail_send",
+      "description": "Send an email message.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          },
+          "to": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ],
+            "description": "Recipient email address(es)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body (plain text)"
+          },
+          "cc": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "CC recipients"
+          },
+          "bcc": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "BCC recipients"
+          }
+        },
+        "required": ["account", "to", "subject", "body"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "gmail_list_labels",
+      "description": "List all Gmail labels for the authenticated user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          }
+        },
+        "required": ["account"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["labels", "count"],
+        "properties": {
+          "labels": { "type": "array" },
+          "count": { "type": "integer" }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "gmail_trash_message",
+      "description": "Move a message to trash (recoverable).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Message ID"
+          }
+        },
+        "required": ["account", "id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "gmail_delete_message",
+      "description": "Permanently delete a message (not recoverable).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Google account email address (required)"
+          },
+          "id": {
+            "type": "string",
+            "description": "Message ID"
+          }
+        },
+        "required": ["account", "id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["deleted"],
+        "properties": {
+          "deleted": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": true
+      }
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "google.gmail",
+    "methods": {
+      "gmail_list_messages": "gmail.list_messages",
+      "gmail_get_message": "gmail.get_message",
+      "gmail_send": "gmail.send",
+      "gmail_list_labels": "gmail.list_labels",
+      "gmail_trash_message": "gmail.trash_message",
+      "gmail_delete_message": "gmail.delete_message"
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

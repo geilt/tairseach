@@ -8,6 +8,8 @@ pub mod calendar;
 pub mod config;
 pub mod contacts;
 pub mod files;
+pub mod gmail;
+pub mod google_calendar;
 pub mod location;
 pub mod permissions;
 pub mod reminders;
@@ -270,6 +272,8 @@ impl HandlerRegistry {
             "files" => files::handle(action, &request.params, id).await,
             "automation" => automation::handle(action, &request.params, id).await,
             "config" => config::handle(action, &request.params, id).await,
+            "gmail" => gmail::handle(action, &request.params, id).await,
+            "gcalendar" => google_calendar::handle(action, &request.params, id).await,
             "server" => self.handle_server(action, &request.params, id).await,
             _ => JsonRpcResponse::method_not_found(id, &request.method),
         }

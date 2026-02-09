@@ -7,6 +7,5 @@ pub mod client;
 pub mod gmail;
 pub mod calendar_api;
 
-pub use client::GoogleClient;
 pub use gmail::GmailApi;
 pub use calendar_api::CalendarApi;

@@ -167,6 +167,7 @@ impl GmailApi {
     }
 
     /// Get details of a specific label
+    #[allow(dead_code)]
     pub async fn get_label(&self, label_id: &str) -> Result<Value, String> {
         info!("Fetching label: {}", label_id);
 
