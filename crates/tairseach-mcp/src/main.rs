@@ -87,7 +87,11 @@ async fn main() -> anyhow::Result<()> {
                     Err(e) => error(id, -32602, format!("invalid tools/call params: {}", e), None),
                 }
             }
-            "notifications/initialized" => success(id, serde_json::json!({})),
+            "resources/list" => success(id, serde_json::json!({"resources": []})),
+            "resources/templates/list" => success(id, serde_json::json!({"resourceTemplates": []})),
+            "resources/read" => error(id, -32601, "no resources available yet".to_string(), None),
+            "prompts/list" => success(id, serde_json::json!({"prompts": []})),
+            "notifications/initialized" => continue,  // notifications have no id, skip response
             _ => error(id, -32601, format!("method not found: {}", request.method), None),
         };
 
