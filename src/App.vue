@@ -41,11 +41,24 @@ const toastContainer = ref<InstanceType<typeof ToastContainer> | null>(null)
 <style>
 .page-enter-active,
 .page-leave-active {
-  transition: opacity 0.08s linear;
+  transition: opacity 0.035s linear;
+  will-change: opacity;
 }
 
 .page-enter-from,
 .page-leave-to {
   opacity: 0;
+}
+
+/* Prevent layout shift during transitions */
+main > div {
+  min-height: 100%;
+}
+
+/* GPU acceleration for smoother transitions */
+.page-enter-active > *,
+.page-leave-active > * {
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 </style>

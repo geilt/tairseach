@@ -1,5 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
+import PermissionsView from '../views/PermissionsView.vue'
+import ConfigView from '../views/ConfigView.vue'
+import GoogleSettingsView from '../views/GoogleSettingsView.vue'
+import MonitorView from '../views/MonitorView.vue'
+import ActivityView from '../views/ActivityView.vue'
+import ProfilesView from '../views/ProfilesView.vue'
+import AuthView from '../views/AuthView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,43 +20,43 @@ const router = createRouter({
     {
       path: '/permissions',
       name: 'permissions',
-      component: () => import('../views/PermissionsView.vue'),
+      component: PermissionsView,
       meta: { title: 'Permissions' },
     },
     {
       path: '/config',
       name: 'config',
-      component: () => import('../views/ConfigView.vue'),
+      component: ConfigView,
       meta: { title: 'Configuration' },
     },
     {
       path: '/settings/google',
       name: 'settings-google',
-      component: () => import('../views/GoogleSettingsView.vue'),
+      component: GoogleSettingsView,
       meta: { title: 'Google OAuth Settings' },
     },
     {
       path: '/monitor',
       name: 'monitor',
-      component: () => import('../views/MonitorView.vue'),
+      component: MonitorView,
       meta: { title: 'Monitor' },
     },
     {
       path: '/activity',
       name: 'activity',
-      component: () => import('../views/ActivityView.vue'),
+      component: ActivityView,
       meta: { title: 'Activity Feed' },
     },
     {
       path: '/profiles',
       name: 'profiles',
-      component: () => import('../views/ProfilesView.vue'),
+      component: ProfilesView,
       meta: { title: 'Agent Profiles' },
     },
     {
       path: '/auth',
       name: 'auth',
-      component: () => import('../views/AuthView.vue'),
+      component: AuthView,
       meta: { title: 'Auth Services' },
     },
   ],
