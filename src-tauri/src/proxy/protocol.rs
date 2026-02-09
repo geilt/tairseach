@@ -69,6 +69,7 @@ pub struct JsonRpcResponse {
     pub error: Option<JsonRpcError>,
 }
 
+#[allow(dead_code)]
 impl JsonRpcResponse {
     /// Create a success response
     pub fn success(id: Value, result: Value) -> Self {
@@ -152,6 +153,7 @@ pub struct JsonRpcError {
     pub data: Option<Value>,
 }
 
+#[allow(dead_code)]
 impl JsonRpcError {
     pub fn new(code: i32, message: impl Into<String>) -> Self {
         Self {

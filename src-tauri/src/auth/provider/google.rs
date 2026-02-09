@@ -10,6 +10,7 @@ use super::{OAuthProvider, OAuthTokens};
 
 // ── Google OAuth endpoints ──────────────────────────────────────────────────
 
+#[allow(dead_code)]
 const AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const REVOKE_ENDPOINT: &str = "https://oauth2.googleapis.com/revoke";
@@ -33,6 +34,7 @@ impl GoogleProvider {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_credentials(client_id: String, client_secret: String) -> Self {
         Self {
             client_id,
@@ -248,6 +250,7 @@ fn parse_token_response(body: &str) -> Result<OAuthTokens, String> {
 // ── PKCE Utilities ──────────────────────────────────────────────────────────
 
 /// Generate a PKCE code verifier (43-128 characters of unreserved URI characters).
+#[allow(dead_code)]
 pub fn generate_code_verifier() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 32];
@@ -256,6 +259,7 @@ pub fn generate_code_verifier() -> String {
 }
 
 /// Derive the PKCE code challenge from a code verifier using S256.
+#[allow(dead_code)]
 pub fn generate_code_challenge(verifier: &str) -> String {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(verifier.as_bytes());
@@ -263,6 +267,7 @@ pub fn generate_code_challenge(verifier: &str) -> String {
 }
 
 /// Base64url encoding (no padding) per RFC 4648 §5.
+#[allow(dead_code)]
 fn base64_url_encode(data: &[u8]) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     URL_SAFE_NO_PAD.encode(data)

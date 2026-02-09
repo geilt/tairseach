@@ -21,6 +21,7 @@ pub struct OAuthTokens {
 /// Each provider implements authorization URL construction, token exchange,
 /// token refresh, and revocation.
 #[allow(async_fn_in_trait)]
+#[allow(dead_code)]
 pub trait OAuthProvider {
     /// Provider name (e.g. "google")
     fn name(&self) -> &str;

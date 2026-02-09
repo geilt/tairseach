@@ -54,6 +54,7 @@ fn get_authorization_status() -> PermissionStatus {
 }
 
 /// Common bundle IDs for automation targets
+#[allow(dead_code)]
 pub mod targets {
     pub const SYSTEM_EVENTS: &str = "com.apple.systemevents";
     pub const FINDER: &str = "com.apple.finder";

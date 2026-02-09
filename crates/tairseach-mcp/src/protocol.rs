@@ -85,6 +85,7 @@ pub struct ResourcesCapabilities {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[allow(dead_code)]
 pub struct ToolsListRequest {
     #[serde(default)]
     pub cursor: Option<String>,

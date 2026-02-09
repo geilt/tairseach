@@ -14,7 +14,7 @@ use crate::proxy::protocol::JsonRpcResponse;
 
 /// Dispatch to external script with credential injection
 pub async fn dispatch(
-    manifest: &Manifest,
+    _manifest: &Manifest,
     tool: &Tool,
     params: &Value,
     id: Value,

@@ -75,6 +75,7 @@ fn get_authorization_status() -> PermissionStatus {
 }
 
 /// Additional protected paths that can be checked
+#[allow(dead_code)]
 pub mod protected_paths {
     use std::path::PathBuf;
 

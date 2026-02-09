@@ -6,8 +6,10 @@ pub mod loader;
 pub mod registry;
 pub mod types;
 
+#[allow(unused_imports)]
 pub use loader::{default_manifest_dir, load_manifests};
 pub use registry::ManifestRegistry;
+#[allow(unused_imports)]
 pub use types::{
     Implementation, Manifest, ProxyAuth, ProxyToolBinding, Requirements, Tool, MANIFEST_VERSION,
 };

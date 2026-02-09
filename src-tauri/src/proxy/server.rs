@@ -36,6 +36,7 @@ pub struct ProxyServer {
     shutdown_tx: broadcast::Sender<()>,
 }
 
+#[allow(dead_code)]
 impl ProxyServer {
     /// Create a new proxy server
     pub fn new(socket_path: Option<PathBuf>) -> Self {

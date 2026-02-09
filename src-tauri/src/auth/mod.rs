@@ -80,6 +80,7 @@ pub mod error_codes {
     pub const TOKEN_REFRESH_FAILED: i32 = -32011;
     pub const SCOPE_INSUFFICIENT: i32 = -32012;
     pub const PROVIDER_NOT_SUPPORTED: i32 = -32013;
+    #[allow(dead_code)]
     pub const AUTH_FLOW_IN_PROGRESS: i32 = -32014;
     pub const MASTER_KEY_NOT_INITIALIZED: i32 = -32015;
 }

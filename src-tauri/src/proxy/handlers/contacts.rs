@@ -277,7 +277,6 @@ fn create_contact_native(
     emails: &[String],
     phones: &[String],
 ) -> Result<Contact, String> {
-    use objc2::ClassType;
     use objc2_contacts::{CNContactStore, CNLabeledValue, CNMutableContact, CNPhoneNumber, CNSaveRequest};
     use objc2_foundation::{NSArray, NSString};
     
@@ -375,9 +374,8 @@ fn update_contact_native(
     emails: Option<&[String]>,
     phones: Option<&[String]>,
 ) -> Result<Contact, String> {
-    use objc2::ClassType;
     use objc2_contacts::{CNContactStore, CNLabeledValue, CNMutableContact, CNPhoneNumber, CNSaveRequest};
-    use objc2_foundation::{NSArray, NSCopying, NSMutableCopying, NSString};
+    use objc2_foundation::{NSArray, NSMutableCopying, NSString};
     
     info!("Updating contact: id={}", contact_id);
     

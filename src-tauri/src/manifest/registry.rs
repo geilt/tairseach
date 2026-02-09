@@ -3,7 +3,6 @@
 //! In-memory registry of loaded manifests with fast tool lookup and hot-reload support.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -97,18 +96,21 @@ impl ManifestRegistry {
     }
 
     /// List all registered manifests
+    #[allow(dead_code)]
     pub async fn list_manifests(&self) -> Vec<Arc<Manifest>> {
         let manifests = self.manifests.read().await;
         manifests.values().cloned().collect()
     }
 
     /// Get a specific manifest by ID
+    #[allow(dead_code)]
     pub async fn get_manifest(&self, id: &str) -> Option<Arc<Manifest>> {
         let manifests = self.manifests.read().await;
         manifests.get(id).cloned()
     }
 
     /// List all registered tool names
+    #[allow(dead_code)]
     pub async fn list_tool_names(&self) -> Vec<String> {
         let tool_index = self.tool_index.read().await;
         tool_index.keys().cloned().collect()

@@ -12,13 +12,14 @@ use std::time::Duration;
 
 /// Check Location permission status using native API
 #[cfg(target_os = "macos")]
+#[allow(deprecated)]
 pub fn check() -> Result<Permission, PermissionError> {
     let status = unsafe {
         let manager = CLLocationManager::new();
-        
-        // Check if location services are enabled (instance method)
+
+        // Check if location services are enabled
         let services_enabled = manager.locationServicesEnabled();
-        
+
         if !services_enabled {
             PermissionStatus::Denied
         } else {

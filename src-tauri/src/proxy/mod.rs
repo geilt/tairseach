@@ -12,6 +12,7 @@ pub mod server;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+#[allow(unused_imports)]
 pub use protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 pub use server::ProxyServer;
 
@@ -42,6 +43,7 @@ impl Default for ProxyState {
 }
 
 /// Error types for the proxy
+#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum ProxyError {
     #[error("IO error: {0}")]
@@ -63,6 +65,7 @@ pub enum ProxyError {
     Internal(String),
 }
 
+#[allow(dead_code)]
 impl ProxyError {
     /// Convert to JSON-RPC error code
     pub fn code(&self) -> i32 {

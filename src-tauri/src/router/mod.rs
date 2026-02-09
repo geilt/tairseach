@@ -9,7 +9,7 @@ pub mod script;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::auth::AuthBroker;
 use crate::manifest::types::{Implementation, Manifest};

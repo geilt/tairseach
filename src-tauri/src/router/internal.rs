@@ -12,7 +12,7 @@ use crate::proxy::protocol::JsonRpcResponse;
 
 /// Dispatch to internal (existing Rust) handlers
 pub async fn dispatch(
-    manifest: &Manifest,
+    _manifest: &Manifest,
     tool: &Tool,
     params: &Value,
     id: Value,

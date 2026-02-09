@@ -126,7 +126,8 @@ impl ToolRegistry {
             .await
             .map_err(|e| ToolCallError::Upstream(format!("socket connect failed: {}", e)))?;
 
-        let mut req = SocketRequest::new(entry.socket_method.clone(), arguments);
+        // Send the tool name to the socket (the router will look it up and dispatch)
+        let mut req = SocketRequest::new(entry.tool_name.clone(), arguments);
         req.id = Some(json!(1));
         let resp = client
             .call(req)

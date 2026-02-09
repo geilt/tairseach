@@ -96,6 +96,7 @@ pub mod ids {
 
 /// Error type for permission operations
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum PermissionError {
     UnknownPermission(String),
     CheckFailed(String),
