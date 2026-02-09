@@ -5,7 +5,7 @@ mod tools;
 use clap::Parser;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use protocol::{error, success, InitializeRequest, JsonRpcRequest, MCP_PROTOCOL_VERSION, ToolsCallRequest};
+use protocol::{error, success, InitializeRequest, JsonRpcRequest, ToolsCallRequest};
 use tools::{ToolCallError, ToolRegistry};
 
 #[derive(Parser, Debug)]
@@ -29,11 +29,19 @@ async fn main() -> anyhow::Result<()> {
     let mut stdout = tokio::io::stdout();
     let mut line = String::new();
 
+    // Keep the bridge alive even when stdin reaches EOF.
+    // MCP Inspector (and some other launchers) may close stdin prematurely
+    // while still expecting the server to remain reachable. We stay alive
+    // and just sleep-poll until the process is killed externally.
     loop {
         line.clear();
         let n = reader.read_line(&mut line).await?;
         if n == 0 {
-            break;
+            // stdin closed — sleep indefinitely instead of exiting,
+            // so the Inspector can still interact via the process.
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
         }
 
         let trimmed = line.trim();
