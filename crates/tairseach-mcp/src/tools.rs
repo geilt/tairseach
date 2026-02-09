@@ -79,7 +79,7 @@ impl ToolRegistry {
                     continue;
                 }
 
-                let mcp_name = format!("tairseach_{}_{}", manifest.id.replace('-', "_"), t.name);
+                let mcp_name = format!("tairseach_{}", t.name);
                 if allowlist
                     .insert(
                         mcp_name.clone(),
