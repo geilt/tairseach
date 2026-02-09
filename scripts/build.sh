@@ -60,7 +60,7 @@ fi
 echo -e "${GREEN}      ✓ Build complete${NC}"
 
 # Step 3: Code sign with Developer ID
-echo -e "${YELLOW}[3/6]${NC} Signing with Developer ID certificate..."
+echo -e "${YELLOW}[3/7]${NC} Signing with Developer ID certificate..."
 codesign --force --deep --options runtime \
     --entitlements "$ENTITLEMENTS" \
     -s "$SIGNING_IDENTITY" \
@@ -74,7 +74,7 @@ else
 fi
 
 # Step 4: Verify signature
-echo -e "${YELLOW}[4/6]${NC} Verifying code signature..."
+echo -e "${YELLOW}[4/7]${NC} Verifying code signature..."
 VERIFY_OUTPUT=$(codesign -dv "$APP_BUNDLE" 2>&1)
 if echo "$VERIFY_OUTPUT" | grep -q "Signature="; then
     TEAM_ID=$(echo "$VERIFY_OUTPUT" | grep "TeamIdentifier" | cut -d= -f2)
@@ -85,17 +85,35 @@ else
 fi
 
 # Step 5: Reset TCC permissions
-echo -e "${YELLOW}[5/6]${NC} Resetting TCC permissions cache..."
+echo -e "${YELLOW}[5/7]${NC} Resetting TCC permissions cache..."
 tccutil reset All "$BUNDLE_ID" 2>/dev/null || true
 echo -e "${GREEN}      ✓ TCC permissions reset${NC}"
 
-# Step 6: Summary
+# Step 6: Polish DMG
+echo -e "${YELLOW}[6/7]${NC} Applying DMG polish fixes..."
+POLISH_SCRIPT="$PROJECT_ROOT/scripts/polish-dmg.sh"
+if [ -f "$POLISH_SCRIPT" ]; then
+    "$POLISH_SCRIPT" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}      ✓ DMG polished (rounded icon, hidden VolumeIcon)${NC}"
+    else
+        echo -e "${YELLOW}      ⚠ DMG polish failed (not critical)${NC}"
+    fi
+else
+    echo -e "${YELLOW}      ⚠ DMG polish script not found (skipping)${NC}"
+fi
+
+# Step 7: Summary
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                    BUILD SUCCESSFUL                      ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "App location: ${BLUE}$APP_BUNDLE${NC}"
+DMG_PATH="$PROJECT_ROOT/src-tauri/target/release/bundle/dmg/Tairseach_0.1.0_aarch64.dmg"
+if [ -f "$DMG_PATH" ]; then
+    echo -e "DMG location: ${BLUE}$DMG_PATH${NC}"
+fi
 echo ""
 echo "To run the app:"
 echo -e "  ${YELLOW}open \"$APP_BUNDLE\"${NC}"
