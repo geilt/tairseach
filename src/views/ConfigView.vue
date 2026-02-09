@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, onActivated, ref, computed } from 'vue'
 import { useConfigStore } from '../stores/config'
 import ConfigSection from '../components/config/ConfigSection.vue'
 import ConfigInput from '../components/config/ConfigInput.vue'
@@ -12,12 +12,13 @@ const newAgentId = ref('')
 const showAddAgent = ref(false)
 const saveMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 
-// Load config on mount
 onMounted(async () => {
-  await Promise.all([
-    store.loadConfig(),
-    store.loadProviderModels(),
-  ])
+  await store.init()
+})
+
+onActivated(() => {
+  void store.loadConfig({ silent: true })
+  void store.loadProviderModels({ silent: true })
 })
 
 // Gateway settings

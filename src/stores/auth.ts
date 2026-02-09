@@ -1,31 +1,51 @@
-import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { defineStore } from 'pinia'
+import { computed, ref, shallowRef } from 'vue'
+import { loadStateCache, saveStateCache } from '@/composables/useStateCache'
 
 export interface AuthState {
-  authenticated: boolean;
-  method: "none" | "password" | "biometric" | "hardware_key";
-  lastAuth?: Date;
+  authenticated: boolean
+  method: 'none' | 'password' | 'biometric' | 'hardware_key'
+  lastAuth?: Date
 }
 
-export const useAuthStore = defineStore("auth", () => {
-  const state = ref<AuthState>({
-    authenticated: false,
-    method: "none",
-  });
+interface AuthCacheData {
+  state: AuthState
+}
 
-  const isAuthenticated = computed(() => state.value.authenticated);
+export const useAuthStore = defineStore('auth', () => {
+  const state = shallowRef<AuthState>({ authenticated: false, method: 'none' })
+  const hydrated = ref(false)
+  const lastUpdated = ref<string | null>(null)
 
-  async function authenticate(method: AuthState["method"], _credential?: string) {
-    // TODO: Implement via Tauri command
-    state.value.authenticated = true;
-    state.value.method = method;
-    state.value.lastAuth = new Date();
+  const isAuthenticated = computed(() => state.value.authenticated)
+
+  function persistCache() {
+    const entry = saveStateCache<AuthCacheData>('auth', { state: state.value })
+    lastUpdated.value = entry.lastUpdated
+  }
+
+  function hydrateFromCache() {
+    const cached = loadStateCache<AuthCacheData>('auth')
+    if (!cached) return
+    state.value = cached.data.state ?? { authenticated: false, method: 'none' }
+    lastUpdated.value = cached.lastUpdated
+  }
+
+  async function init() {
+    if (hydrated.value) return
+    hydrateFromCache()
+    hydrated.value = true
+    void checkAuth()
+  }
+
+  async function authenticate(method: AuthState['method'], _credential?: string) {
+    state.value = { ...state.value, authenticated: true, method, lastAuth: new Date() }
+    persistCache()
   }
 
   async function logout() {
-    state.value.authenticated = false;
-    state.value.method = "none";
-    state.value.lastAuth = undefined;
+    state.value = { authenticated: false, method: 'none', lastAuth: undefined }
+    persistCache()
   }
 
   async function checkAuth() {
@@ -34,9 +54,12 @@ export const useAuthStore = defineStore("auth", () => {
 
   return {
     state,
+    hydrated,
+    lastUpdated,
     isAuthenticated,
+    init,
     authenticate,
     logout,
     checkAuth,
-  };
-});
+  }
+})

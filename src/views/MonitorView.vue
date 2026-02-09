@@ -1,5 +1,16 @@
 <script setup lang="ts">
-// Placeholder for T-004 MonitorView
+import { onActivated, onMounted } from 'vue'
+import { useMonitorStore } from '@/stores/monitor'
+
+const store = useMonitorStore()
+
+onMounted(() => {
+  void store.init()
+})
+
+onActivated(() => {
+  void store.connect({ silent: true })
+})
 </script>
 
 <template>

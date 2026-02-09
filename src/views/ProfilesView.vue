@@ -1,5 +1,16 @@
 <script setup lang="ts">
-// Placeholder for A-007 ProfilesView
+import { onActivated, onMounted } from 'vue'
+import { useProfilesStore } from '@/stores/profiles'
+
+const store = useProfilesStore()
+
+onMounted(() => {
+  void store.init()
+})
+
+onActivated(() => {
+  void store.loadProfiles({ silent: true })
+})
 </script>
 
 <template>

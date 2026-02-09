@@ -1,5 +1,12 @@
 <script setup lang="ts">
-// Placeholder for O-009 AuthView
+import { onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+
+const store = useAuthStore()
+
+onMounted(() => {
+  void store.init()
+})
 </script>
 
 <template>

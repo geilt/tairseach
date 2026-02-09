@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
+import { onMounted, onUnmounted, onActivated, computed, ref, watch } from 'vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
 import { usePermissionsStore } from '../stores/permissions'
 
@@ -7,15 +7,18 @@ const store = usePermissionsStore()
 
 const refreshTimer = ref<number | null>(null)
 
-// Load permissions on mount + start gentle background refresh while view is active
+// Load cached state first, then soft refresh in background.
 onMounted(async () => {
-  await store.loadDefinitions()
-  await store.loadPermissions()
+  await store.init()
 
   refreshTimer.value = window.setInterval(() => {
-    // silent refresh: do not flip store.loading (prevents layout thrash)
     store.loadPermissions({ silent: true })
   }, 12_000)
+})
+
+onActivated(() => {
+  void store.loadPermissions({ silent: true })
+  void store.loadDefinitions({ silent: true })
 })
 
 onUnmounted(() => {

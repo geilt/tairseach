@@ -1,26 +1,59 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
+import { defineStore } from 'pinia'
+import { ref, shallowRef } from 'vue'
+import { loadStateCache, saveStateCache } from '@/composables/useStateCache'
 
 export interface Profile {
-  id: string;
-  name: string;
-  type: "agent" | "tool" | "mcp_server";
-  config: Record<string, unknown>;
-  enabled: boolean;
+  id: string
+  name: string
+  type: 'agent' | 'tool' | 'mcp_server'
+  config: Record<string, unknown>
+  enabled: boolean
 }
 
-export const useProfilesStore = defineStore("profiles", () => {
-  const profiles = ref<Profile[]>([]);
-  const activeProfile = ref<string | null>(null);
-  const loading = ref(false);
+interface ProfilesCacheData {
+  profiles: Profile[]
+  activeProfile: string | null
+}
 
-  async function loadProfiles() {
-    loading.value = true;
-    // TODO: Load from Tauri backend
-    loading.value = false;
+export const useProfilesStore = defineStore('profiles', () => {
+  const profiles = shallowRef<Profile[]>([])
+  const activeProfile = ref<string | null>(null)
+  const loading = ref(false)
+  const hydrated = ref(false)
+  const lastUpdated = ref<string | null>(null)
+
+  function persistCache() {
+    const entry = saveStateCache<ProfilesCacheData>('profiles', {
+      profiles: profiles.value,
+      activeProfile: activeProfile.value,
+    })
+    lastUpdated.value = entry.lastUpdated
   }
 
-  async function createProfile(_profile: Omit<Profile, "id">) {
+  function hydrateFromCache() {
+    const cached = loadStateCache<ProfilesCacheData>('profiles')
+    if (!cached) return
+    profiles.value = cached.data.profiles ?? []
+    activeProfile.value = cached.data.activeProfile ?? null
+    lastUpdated.value = cached.lastUpdated
+  }
+
+  async function init() {
+    if (hydrated.value) return
+    hydrateFromCache()
+    hydrated.value = true
+    void loadProfiles({ silent: true })
+  }
+
+  async function loadProfiles(opts: { silent?: boolean } = {}) {
+    const silent = opts.silent === true
+    if (!silent) loading.value = true
+    // TODO: Load from Tauri backend
+    if (!silent) loading.value = false
+    persistCache()
+  }
+
+  async function createProfile(_profile: Omit<Profile, 'id'>) {
     // TODO: Create via Tauri command
   }
 
@@ -33,18 +66,21 @@ export const useProfilesStore = defineStore("profiles", () => {
   }
 
   async function setActiveProfile(id: string) {
-    activeProfile.value = id;
-    // TODO: Persist via Tauri command
+    activeProfile.value = id
+    persistCache()
   }
 
   return {
     profiles,
     activeProfile,
     loading,
+    hydrated,
+    lastUpdated,
+    init,
     loadProfiles,
     createProfile,
     updateProfile,
     deleteProfile,
     setActiveProfile,
-  };
-});
+  }
+})
