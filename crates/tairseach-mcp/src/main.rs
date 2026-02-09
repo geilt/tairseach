@@ -62,20 +62,10 @@ async fn main() -> anyhow::Result<()> {
                 let init: Result<InitializeRequest, _> = serde_json::from_value(request.params);
                 match init {
                     Ok(init_req) => {
-                        if init_req.protocol_version != MCP_PROTOCOL_VERSION {
-                            error(
-                                id,
-                                -32602,
-                                format!(
-                                    "unsupported protocol version: {} (expected {})",
-                                    init_req.protocol_version, MCP_PROTOCOL_VERSION
-                                ),
-                                None,
-                            )
-                        } else {
-                            let result = initialize::handle_initialize(init_req);
-                            success(id, serde_json::to_value(result)?)
-                        }
+                        // Accept any client protocol version — respond with our version
+                        // per MCP spec: server declares its version, client adapts
+                        let result = initialize::handle_initialize(init_req);
+                        success(id, serde_json::to_value(result)?)
                     }
                     Err(e) => error(id, -32602, format!("invalid initialize params: {}", e), None),
                 }
