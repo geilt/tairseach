@@ -29,6 +29,12 @@ const router = createRouter({
       meta: { title: 'Monitor' },
     },
     {
+      path: '/activity',
+      name: 'activity',
+      component: () => import('../views/ActivityView.vue'),
+      meta: { title: 'Activity Feed' },
+    },
+    {
       path: '/profiles',
       name: 'profiles',
       component: () => import('../views/ProfilesView.vue'),

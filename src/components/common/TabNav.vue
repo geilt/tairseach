@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { id: 'permissions', label: 'Permissions', emoji: '🔐', route: '/permissions' },
   { id: 'config', label: 'Config', emoji: '⚙️', route: '/config' },
   { id: 'monitor', label: 'Monitor', emoji: '📊', route: '/monitor' },
+  { id: 'activity', label: 'Activity', emoji: '🧾', route: '/activity' },
   { id: 'profiles', label: 'Profiles', emoji: '👤', route: '/profiles' },
   { id: 'auth', label: 'Auth', emoji: '🔑', route: '/auth' },
 ]

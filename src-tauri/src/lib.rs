@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod google;
 mod manifest;
 mod mcp;
 mod monitor;
