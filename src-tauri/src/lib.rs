@@ -162,6 +162,7 @@ pub fn run() {
             config::get_provider_models,
             // Monitor
             monitor::get_events,
+            monitor::get_manifest_summary,
             // Profiles
             profiles::get_profiles,
             profiles::save_profile,
