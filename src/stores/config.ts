@@ -66,11 +66,36 @@ export interface OpenClawConfig {
   [key: string]: unknown
 }
 
+export interface NodeConfig {
+  version: number
+  nodeId: string
+  displayName: string
+  gateway: {
+    host: string
+    port: number
+    tls: boolean
+  }
+}
+
+export interface ExecApproval {
+  pattern: string
+  approved: boolean
+  timestamp?: string
+}
+
+export interface EnvironmentInfo {
+  environment_type: 'gateway' | 'node' | 'unknown'
+  files: Array<{ name: string; path: string }>
+}
+
 interface ConfigCacheData {
   config: OpenClawConfig
   configPath: string
   originalConfig: string
   providerModels: Record<string, ModelOption[]>
+  nodeConfig?: NodeConfig
+  execApprovals?: ExecApproval[]
+  environment?: EnvironmentInfo
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -83,11 +108,25 @@ export const useConfigStore = defineStore('config', () => {
   const providerModels = shallowRef<Record<string, ModelOption[]>>({})
   const hydrated = ref(false)
   const lastUpdated = ref<string | null>(null)
+  
+  // Node-specific state
+  const environment = ref<EnvironmentInfo | null>(null)
+  const nodeConfig = shallowRef<NodeConfig | null>(null)
+  const originalNodeConfig = ref('')
+  const execApprovals = ref<ExecApproval[]>([])
+  const originalExecApprovals = ref('')
 
-  const dirty = computed(() => JSON.stringify(config.value) !== originalConfig.value)
+  const dirty = computed(() => {
+    const configDirty = JSON.stringify(config.value) !== originalConfig.value
+    const nodeDirty = nodeConfig.value ? JSON.stringify(nodeConfig.value) !== originalNodeConfig.value : false
+    const approvalsDirty = JSON.stringify(execApprovals.value) !== originalExecApprovals.value
+    return configDirty || nodeDirty || approvalsDirty
+  })
   const agents = computed(() => config.value.agents?.list || [])
   const customProviders = computed(() => Object.keys(config.value.models?.providers || {}))
   const allProviders = computed(() => [...new Set([...Object.keys(providerModels.value), ...customProviders.value])])
+  const isNode = computed(() => environment.value?.environment_type === 'node')
+  const isGateway = computed(() => environment.value?.environment_type === 'gateway')
 
   function persistCache() {
     const entry = saveStateCache<ConfigCacheData>('config', {
@@ -95,6 +134,9 @@ export const useConfigStore = defineStore('config', () => {
       configPath: configPath.value,
       originalConfig: originalConfig.value,
       providerModels: providerModels.value,
+      nodeConfig: nodeConfig.value ?? undefined,
+      execApprovals: execApprovals.value,
+      environment: environment.value ?? undefined,
     })
     lastUpdated.value = entry.lastUpdated
   }
@@ -106,6 +148,11 @@ export const useConfigStore = defineStore('config', () => {
     configPath.value = cached.data.configPath ?? ''
     originalConfig.value = cached.data.originalConfig ?? JSON.stringify(cached.data.config ?? {})
     providerModels.value = cached.data.providerModels ?? {}
+    nodeConfig.value = cached.data.nodeConfig ?? null
+    execApprovals.value = cached.data.execApprovals ?? []
+    environment.value = cached.data.environment ?? null
+    originalNodeConfig.value = nodeConfig.value ? JSON.stringify(nodeConfig.value) : ''
+    originalExecApprovals.value = JSON.stringify(execApprovals.value)
     lastUpdated.value = cached.lastUpdated
     return true
   }
@@ -114,6 +161,7 @@ export const useConfigStore = defineStore('config', () => {
     if (hydrated.value) return
     hydrateFromCache()
     hydrated.value = true
+    void loadEnvironment({ silent: true })
     void loadConfig({ silent: true })
     void loadProviderModels({ silent: true })
   }
@@ -145,16 +193,76 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  async function loadEnvironment(_opts: { silent?: boolean } = {}) {
+    try {
+      environment.value = await invoke<EnvironmentInfo>('get_environment')
+      
+      // Load node-specific config if we're on a node
+      if (environment.value.environment_type === 'node') {
+        void loadNodeConfig(_opts)
+        void loadExecApprovals(_opts)
+      }
+      
+      persistCache()
+    } catch (e) {
+      console.error('Failed to load environment:', e)
+    }
+  }
+
+  async function loadNodeConfig(opts: { silent?: boolean } = {}) {
+    const silent = opts.silent === true
+    if (!silent) loading.value = true
+    error.value = null
+    try {
+      const result = await invoke<{ config: NodeConfig; path: string }>('get_node_config')
+      nodeConfig.value = result.config
+      originalNodeConfig.value = JSON.stringify(result.config)
+      persistCache()
+    } catch (e) {
+      error.value = String(e)
+      console.error('Failed to load node config:', e)
+    } finally {
+      if (!silent) loading.value = false
+    }
+  }
+
+  async function loadExecApprovals(_opts: { silent?: boolean } = {}) {
+    try {
+      const result = await invoke<{ approvals: ExecApproval[]; path: string }>('get_exec_approvals')
+      execApprovals.value = Array.isArray(result.approvals) ? result.approvals : []
+      originalExecApprovals.value = JSON.stringify(execApprovals.value)
+      persistCache()
+    } catch (e) {
+      console.error('Failed to load exec approvals:', e)
+    }
+  }
+
   async function saveConfig() {
     saving.value = true
     error.value = null
     try {
-      config.value = {
-        ...config.value,
-        meta: { ...config.value.meta, lastTouchedAt: new Date().toISOString() },
+      // Save gateway config if it's changed
+      if (JSON.stringify(config.value) !== originalConfig.value) {
+        config.value = {
+          ...config.value,
+          meta: { ...config.value.meta, lastTouchedAt: new Date().toISOString() },
+        }
+        await invoke('set_config', { config: config.value })
+        originalConfig.value = JSON.stringify(config.value)
       }
-      await invoke('set_config', { config: config.value })
-      originalConfig.value = JSON.stringify(config.value)
+      
+      // Save node config if it's changed
+      if (nodeConfig.value && JSON.stringify(nodeConfig.value) !== originalNodeConfig.value) {
+        await invoke('set_node_config', { config: nodeConfig.value })
+        originalNodeConfig.value = JSON.stringify(nodeConfig.value)
+      }
+      
+      // Save exec approvals if they've changed
+      if (JSON.stringify(execApprovals.value) !== originalExecApprovals.value) {
+        await invoke('set_exec_approvals', { approvals: execApprovals.value })
+        originalExecApprovals.value = JSON.stringify(execApprovals.value)
+      }
+      
       persistCache()
     } catch (e) {
       error.value = String(e)
@@ -167,6 +275,8 @@ export const useConfigStore = defineStore('config', () => {
 
   function revertChanges() {
     if (originalConfig.value) config.value = JSON.parse(originalConfig.value)
+    if (originalNodeConfig.value) nodeConfig.value = JSON.parse(originalNodeConfig.value)
+    if (originalExecApprovals.value) execApprovals.value = JSON.parse(originalExecApprovals.value)
   }
 
   function updateAgent(id: string, updates: Partial<AgentConfig>) {
@@ -249,9 +359,17 @@ export const useConfigStore = defineStore('config', () => {
     providerModels,
     hydrated,
     lastUpdated,
+    environment,
+    nodeConfig,
+    execApprovals,
+    isNode,
+    isGateway,
     init,
     loadConfig,
     loadProviderModels,
+    loadEnvironment,
+    loadNodeConfig,
+    loadExecApprovals,
     saveConfig,
     revertChanges,
     updateAgent,

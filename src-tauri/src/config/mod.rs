@@ -7,11 +7,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
 
-fn get_openclaw_config_path() -> PathBuf {
+fn get_openclaw_dir() -> PathBuf {
     dirs::home_dir()
         .expect("Could not find home directory")
         .join(".openclaw")
-        .join("openclaw.json")
+}
+
+fn get_openclaw_config_path() -> PathBuf {
+    get_openclaw_dir().join("openclaw.json")
+}
+
+fn get_node_config_path() -> PathBuf {
+    get_openclaw_dir().join("node.json")
+}
+
+fn get_exec_approvals_path() -> PathBuf {
+    get_openclaw_dir().join("exec-approvals.json")
 }
 
 fn get_tairseach_auth_path() -> PathBuf {
@@ -43,6 +54,30 @@ pub struct GoogleOAuthStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenClawConfig {
     pub raw: Value,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentInfo {
+    pub environment_type: String,
+    pub files: Vec<FileInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileInfo {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeConfig {
+    pub config: Value,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecApprovals {
+    pub approvals: Value,
     pub path: String,
 }
 
@@ -259,4 +294,140 @@ pub async fn get_google_oauth_status() -> Result<GoogleOAuthStatus, String> {
         has_token: false,
         message: "Connected".to_string(),
     })
+}
+
+#[tauri::command]
+pub async fn get_environment() -> Result<EnvironmentInfo, String> {
+    let gateway_path = get_openclaw_config_path();
+    let node_path = get_node_config_path();
+    let exec_approvals_path = get_exec_approvals_path();
+    
+    let is_gateway = gateway_path.exists();
+    let is_node = node_path.exists();
+    
+    let environment_type = if is_gateway {
+        "gateway".to_string()
+    } else if is_node {
+        "node".to_string()
+    } else {
+        "unknown".to_string()
+    };
+    
+    let mut files = Vec::new();
+    if gateway_path.exists() {
+        files.push(FileInfo {
+            name: "openclaw.json".to_string(),
+            path: gateway_path.display().to_string(),
+        });
+    }
+    if node_path.exists() {
+        files.push(FileInfo {
+            name: "node.json".to_string(),
+            path: node_path.display().to_string(),
+        });
+    }
+    if exec_approvals_path.exists() {
+        files.push(FileInfo {
+            name: "exec-approvals.json".to_string(),
+            path: exec_approvals_path.display().to_string(),
+        });
+    }
+    
+    Ok(EnvironmentInfo {
+        environment_type,
+        files,
+    })
+}
+
+#[tauri::command]
+pub async fn get_node_config() -> Result<NodeConfig, String> {
+    let node_path = get_node_config_path();
+    
+    if !node_path.exists() {
+        return Err(format!("Node config not found at {:?}", node_path));
+    }
+    
+    let content = std::fs::read_to_string(&node_path)
+        .map_err(|e| format!("Failed to read node config: {}", e))?;
+    
+    let config: Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse node config JSON: {}", e))?;
+    
+    Ok(NodeConfig {
+        config,
+        path: node_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn set_node_config(config: Value) -> Result<(), String> {
+    let node_path = get_node_config_path();
+    
+    // Backup existing config
+    if node_path.exists() {
+        let backup_path = node_path.with_extension("json.bak");
+        std::fs::copy(&node_path, &backup_path)
+            .map_err(|e| format!("Failed to create backup: {}", e))?;
+    }
+    
+    // Ensure parent directory exists
+    if let Some(parent) = node_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+    
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize node config: {}", e))?;
+    
+    std::fs::write(&node_path, content)
+        .map_err(|e| format!("Failed to write node config: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_exec_approvals() -> Result<ExecApprovals, String> {
+    let approvals_path = get_exec_approvals_path();
+    
+    let approvals: Value = if approvals_path.exists() {
+        let content = std::fs::read_to_string(&approvals_path)
+            .map_err(|e| format!("Failed to read exec approvals: {}", e))?;
+        
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse exec approvals JSON: {}", e))?
+    } else {
+        // Return empty array if file doesn't exist
+        serde_json::json!([])
+    };
+    
+    Ok(ExecApprovals {
+        approvals,
+        path: approvals_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn set_exec_approvals(approvals: Value) -> Result<(), String> {
+    let approvals_path = get_exec_approvals_path();
+    
+    // Backup existing config
+    if approvals_path.exists() {
+        let backup_path = approvals_path.with_extension("json.bak");
+        std::fs::copy(&approvals_path, &backup_path)
+            .map_err(|e| format!("Failed to create backup: {}", e))?;
+    }
+    
+    // Ensure parent directory exists
+    if let Some(parent) = approvals_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+    
+    let content = serde_json::to_string_pretty(&approvals)
+        .map_err(|e| format!("Failed to serialize exec approvals: {}", e))?;
+    
+    std::fs::write(&approvals_path, content)
+        .map_err(|e| format!("Failed to write exec approvals: {}", e))?;
+    
+    Ok(())
 }

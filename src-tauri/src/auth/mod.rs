@@ -403,7 +403,28 @@ impl AuthBroker {
     }
 }
 
-// ── Tauri commands (kept for backward compat with the stub) ─────────────────
+// ── Tauri commands ──────────────────────────────────────────────────────────
+
+use once_cell::sync::OnceCell;
+
+static AUTH_BROKER_INSTANCE: OnceCell<Arc<AuthBroker>> = OnceCell::new();
+
+async fn get_or_init_broker() -> Result<Arc<AuthBroker>, String> {
+    if let Some(broker) = AUTH_BROKER_INSTANCE.get() {
+        return Ok(Arc::clone(broker));
+    }
+    
+    let broker = AuthBroker::new().await?;
+    broker.spawn_refresh_daemon();
+    
+    match AUTH_BROKER_INSTANCE.set(Arc::clone(&broker)) {
+        Ok(_) => Ok(broker),
+        Err(_) => {
+            // Someone else set it first, use theirs
+            Ok(Arc::clone(AUTH_BROKER_INSTANCE.get().unwrap()))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthState {
@@ -431,6 +452,64 @@ pub async fn check_auth() -> Result<AuthState, String> {
         method: "none".to_string(),
         last_auth: None,
     })
+}
+
+#[tauri::command]
+pub async fn auth_status() -> Result<AuthStatus, String> {
+    let broker = get_or_init_broker().await?;
+    Ok(broker.status().await)
+}
+
+#[tauri::command]
+pub async fn auth_providers() -> Result<Vec<String>, String> {
+    let broker = get_or_init_broker().await?;
+    Ok(broker.list_providers())
+}
+
+#[tauri::command]
+pub async fn auth_accounts(provider: Option<String>) -> Result<Vec<AccountInfo>, String> {
+    let broker = get_or_init_broker().await?;
+    Ok(broker.list_accounts(provider.as_deref()).await)
+}
+
+#[tauri::command]
+pub async fn auth_get_token(
+    provider: String,
+    account: String,
+    scopes: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    let broker = get_or_init_broker().await?;
+    broker
+        .get_token(&provider, &account, scopes.as_deref())
+        .await
+        .map_err(|(_, msg)| msg)
+}
+
+#[tauri::command]
+pub async fn auth_refresh_token(provider: String, account: String) -> Result<serde_json::Value, String> {
+    let broker = get_or_init_broker().await?;
+    broker
+        .force_refresh(&provider, &account)
+        .await
+        .map_err(|(_, msg)| msg)
+}
+
+#[tauri::command]
+pub async fn auth_revoke_token(provider: String, account: String) -> Result<(), String> {
+    let broker = get_or_init_broker().await?;
+    broker
+        .revoke_token(&provider, &account)
+        .await
+        .map_err(|(_, msg)| msg)
+}
+
+#[tauri::command]
+pub async fn auth_store_token(record: TokenRecord) -> Result<(), String> {
+    let broker = get_or_init_broker().await?;
+    broker
+        .store_token(record)
+        .await
+        .map_err(|(_, msg)| msg)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

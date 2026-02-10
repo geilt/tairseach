@@ -165,6 +165,11 @@ pub fn run() {
             config::save_google_oauth_config,
             config::test_google_oauth_config,
             config::get_google_oauth_status,
+            config::get_environment,
+            config::get_node_config,
+            config::set_node_config,
+            config::get_exec_approvals,
+            config::set_exec_approvals,
             // Monitor
             monitor::get_events,
             monitor::get_manifest_summary,
@@ -174,15 +179,22 @@ pub fn run() {
             // Auth
             auth::authenticate,
             auth::check_auth,
+            auth::auth_status,
+            auth::auth_providers,
+            auth::auth_accounts,
+            auth::auth_get_token,
+            auth::auth_refresh_token,
+            auth::auth_revoke_token,
+            auth::auth_store_token,
             // Proxy
             get_proxy_status,
             start_proxy_server,
             stop_proxy_server,
         ])
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(debug_assertions)]
             {
-                let window = app.get_webview_window("main").unwrap();
+                let window = _app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
             

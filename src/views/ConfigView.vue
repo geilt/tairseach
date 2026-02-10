@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onActivated, ref, computed } from 'vue'
 import { useConfigStore } from '../stores/config'
+import type { ExecApproval } from '../stores/config'
 import ConfigSection from '../components/config/ConfigSection.vue'
 import ConfigInput from '../components/config/ConfigInput.vue'
 import ConfigSelect from '../components/config/ConfigSelect.vue'
@@ -11,14 +12,20 @@ const store = useConfigStore()
 const newAgentId = ref('')
 const showAddAgent = ref(false)
 const saveMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+const newApprovalPattern = ref('')
 
 onMounted(async () => {
   await store.init()
 })
 
 onActivated(() => {
+  void store.loadEnvironment({ silent: true })
   void store.loadConfig({ silent: true })
   void store.loadProviderModels({ silent: true })
+  if (store.isNode) {
+    void store.loadNodeConfig({ silent: true })
+    void store.loadExecApprovals({ silent: true })
+  }
 })
 
 // Gateway settings
@@ -113,6 +120,71 @@ const authModeOptions = [
   { value: 'token', label: 'Token Authentication' },
   { value: 'none', label: 'No Authentication' },
 ]
+
+// Node config computed properties
+const nodeDisplayName = computed({
+  get: () => store.nodeConfig?.displayName || '',
+  set: (v) => {
+    if (store.nodeConfig) {
+      store.nodeConfig = { ...store.nodeConfig, displayName: v }
+    }
+  },
+})
+
+const nodeGatewayHost = computed({
+  get: () => store.nodeConfig?.gateway?.host || '',
+  set: (v) => {
+    if (store.nodeConfig) {
+      store.nodeConfig = {
+        ...store.nodeConfig,
+        gateway: { ...store.nodeConfig.gateway, host: v },
+      }
+    }
+  },
+})
+
+const nodeGatewayPort = computed({
+  get: () => store.nodeConfig?.gateway?.port || 18789,
+  set: (v) => {
+    if (store.nodeConfig) {
+      store.nodeConfig = {
+        ...store.nodeConfig,
+        gateway: { ...store.nodeConfig.gateway, port: v },
+      }
+    }
+  },
+})
+
+const nodeGatewayTls = computed({
+  get: () => store.nodeConfig?.gateway?.tls || false,
+  set: (v) => {
+    if (store.nodeConfig) {
+      store.nodeConfig = {
+        ...store.nodeConfig,
+        gateway: { ...store.nodeConfig.gateway, tls: v },
+      }
+    }
+  },
+})
+
+// Exec approvals functions
+function addApproval() {
+  if (!newApprovalPattern.value.trim()) return
+  store.execApprovals.push({
+    pattern: newApprovalPattern.value.trim(),
+    approved: true,
+    timestamp: new Date().toISOString(),
+  })
+  newApprovalPattern.value = ''
+}
+
+function removeApproval(index: number) {
+  store.execApprovals.splice(index, 1)
+}
+
+function toggleApproval(approval: ExecApproval) {
+  approval.approved = !approval.approved
+}
 </script>
 
 <template>
@@ -196,6 +268,107 @@ const authModeOptions = [
       </div>
 
       <div class="space-y-6">
+        <!-- Node Configuration (shown when on a node) -->
+        <template v-if="store.isNode">
+          <ConfigSection 
+            title="Node Identity" 
+            icon="🖥️" 
+            description="OpenClaw node configuration"
+          >
+            <div class="grid grid-cols-2 gap-4">
+              <ConfigInput
+                :model-value="store.nodeConfig?.nodeId || ''"
+                label="Node ID"
+                monospace
+                disabled
+                description="Unique identifier for this node"
+              />
+              <ConfigInput
+                v-model="nodeDisplayName"
+                label="Display Name"
+                placeholder="bolcain"
+                description="Friendly name for this node"
+              />
+            </div>
+          </ConfigSection>
+
+          <ConfigSection 
+            title="Gateway Connection" 
+            icon="🌐" 
+            description="Connection to OpenClaw gateway"
+          >
+            <div class="grid grid-cols-3 gap-4">
+              <ConfigInput
+                v-model="nodeGatewayHost"
+                label="Gateway Host"
+                placeholder="192.168.9.158"
+                description="Gateway IP or hostname"
+              />
+              <ConfigInput
+                v-model="nodeGatewayPort"
+                label="Port"
+                type="number"
+                description="Gateway port"
+              />
+              <div>
+                <label class="block text-sm font-medium text-naonur-bone mb-2">TLS Enabled</label>
+                <input
+                  v-model="nodeGatewayTls"
+                  type="checkbox"
+                  class="w-5 h-5 rounded border-naonur-fog/50 bg-naonur-void/50 checked:bg-naonur-gold checked:border-naonur-gold focus:ring-naonur-gold focus:ring-offset-naonur-void"
+                />
+                <p class="text-xs text-naonur-smoke mt-1">Use TLS for gateway connection</p>
+              </div>
+            </div>
+          </ConfigSection>
+
+          <ConfigSection 
+            title="Exec Approvals" 
+            icon="✅" 
+            description="Pre-approved command patterns"
+            :badge="store.execApprovals.length"
+          >
+            <div class="space-y-3">
+              <div 
+                v-for="(approval, idx) in store.execApprovals" 
+                :key="idx"
+                class="p-3 rounded-lg bg-naonur-fog/10 border border-naonur-fog/20 flex items-center justify-between"
+              >
+                <div class="flex items-center gap-3 flex-1">
+                  <input
+                    :checked="approval.approved"
+                    type="checkbox"
+                    class="w-5 h-5 rounded border-naonur-fog/50 bg-naonur-void/50 checked:bg-naonur-gold checked:border-naonur-gold"
+                    @change="toggleApproval(approval)"
+                  />
+                  <code class="text-sm text-naonur-bone font-mono">{{ approval.pattern }}</code>
+                </div>
+                <button
+                  class="text-naonur-blood hover:text-naonur-blood/80 text-sm"
+                  @click="removeApproval(idx)"
+                >
+                  Remove
+                </button>
+              </div>
+              
+              <div class="flex gap-3 pt-2">
+                <ConfigInput
+                  v-model="newApprovalPattern"
+                  placeholder="Command pattern (e.g., npm run *)"
+                  monospace
+                  class="flex-1"
+                  @keyup.enter="addApproval"
+                />
+                <button class="btn btn-primary text-sm" @click="addApproval">
+                  Add Pattern
+                </button>
+              </div>
+            </div>
+          </ConfigSection>
+        </template>
+
+        <!-- Gateway Configuration (shown when on gateway) -->
+        <template v-if="store.isGateway">
         <!-- Agents Section -->
         <ConfigSection 
           title="Agents" 
@@ -458,12 +631,13 @@ const authModeOptions = [
           :default-open="false"
         >
           <div class="relative">
-            <pre class="p-4 rounded-lg bg-naonur-void border border-naonur-fog/30 text-xs font-mono text-naonur-smoke overflow-auto max-h-96">{{ JSON.stringify(store.config, null, 2) }}</pre>
+            <pre class="p-4 rounded-lg bg-naonur-void border border-naonur-fog/30 text-xs font-mono text-naonur-smoke overflow-auto max-h-96">{{ JSON.stringify(store.isNode ? store.nodeConfig : store.config, null, 2) }}</pre>
           </div>
           <p class="text-xs text-naonur-smoke mt-2 text-center">
             Direct JSON editing coming soon. For now, use the form fields above.
           </p>
         </ConfigSection>
+        </template>
       </div>
 
       <div class="threshold-line my-8"></div>
