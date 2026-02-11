@@ -18,7 +18,7 @@ set -e
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$PROJECT_ROOT/src-tauri/target/release/bundle/macos/Tairseach.app"
-MCP_BINARY="$PROJECT_ROOT/src-tauri/target/release/tairseach-mcp"
+MCP_BINARY="$PROJECT_ROOT/target/release/tairseach-mcp"
 MANIFESTS_DIR="$PROJECT_ROOT/manifests"
 REMOTE_HOST="bolcain.local"
 REMOTE_USER="${REMOTE_USER:-geilt}"
