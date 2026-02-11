@@ -267,9 +267,33 @@ function toggleApproval(approval: ExecApproval) {
         <span>You have unsaved changes</span>
       </div>
 
+      <!-- Environment detection -->
+      <div v-if="!store.environment" class="mb-4 px-4 py-2 bg-naonur-fog/10 border border-naonur-fog/30 rounded-lg text-sm text-naonur-ash flex items-center gap-2">
+        <span>ℹ️</span>
+        <span>Detecting environment type... (Node config features require backend support)</span>
+      </div>
+
       <div class="space-y-6">
         <!-- Node Configuration (shown when on a node) -->
         <template v-if="store.isNode">
+          <!-- Node config not available warning -->
+          <div v-if="!store.nodeConfig" class="naonur-card mb-6 border-naonur-rust/30">
+            <div class="flex items-start gap-3">
+              <span class="text-2xl">⚠️</span>
+              <div>
+                <h3 class="text-naonur-rust font-display mb-2">Node Configuration Not Available</h3>
+                <p class="text-naonur-ash text-sm mb-3">
+                  The backend commands for node configuration are not available yet. 
+                  This feature requires Tauri commands that are currently being implemented.
+                </p>
+                <button class="btn btn-secondary text-sm" @click="store.loadNodeConfig()">
+                  Retry Loading
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <template v-else>
           <ConfigSection 
             title="Node Identity" 
             icon="🖥️" 
@@ -365,6 +389,7 @@ function toggleApproval(approval: ExecApproval) {
               </div>
             </div>
           </ConfigSection>
+          </template>
         </template>
 
         <!-- Gateway Configuration (shown when on gateway) -->

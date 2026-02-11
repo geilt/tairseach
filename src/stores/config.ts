@@ -84,7 +84,7 @@ export interface ExecApproval {
 }
 
 export interface EnvironmentInfo {
-  environment_type: 'gateway' | 'node' | 'unknown'
+  type: 'gateway' | 'node' | 'unknown'
   files: Array<{ name: string; path: string }>
 }
 
@@ -125,8 +125,8 @@ export const useConfigStore = defineStore('config', () => {
   const agents = computed(() => config.value.agents?.list || [])
   const customProviders = computed(() => Object.keys(config.value.models?.providers || {}))
   const allProviders = computed(() => [...new Set([...Object.keys(providerModels.value), ...customProviders.value])])
-  const isNode = computed(() => environment.value?.environment_type === 'node')
-  const isGateway = computed(() => environment.value?.environment_type === 'gateway')
+  const isNode = computed(() => environment.value?.type === 'node')
+  const isGateway = computed(() => environment.value?.type === 'gateway')
 
   function persistCache() {
     const entry = saveStateCache<ConfigCacheData>('config', {
@@ -198,7 +198,7 @@ export const useConfigStore = defineStore('config', () => {
       environment.value = await invoke<EnvironmentInfo>('get_environment')
       
       // Load node-specific config if we're on a node
-      if (environment.value.environment_type === 'node') {
+      if (environment.value.type === 'node') {
         void loadNodeConfig(_opts)
         void loadExecApprovals(_opts)
       }
@@ -206,6 +206,8 @@ export const useConfigStore = defineStore('config', () => {
       persistCache()
     } catch (e) {
       console.error('Failed to load environment:', e)
+      // If command doesn't exist yet, assume gateway for backwards compatibility
+      environment.value = { type: 'gateway', files: [] }
     }
   }
 
