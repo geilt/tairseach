@@ -184,7 +184,15 @@ async fn post_form(
             .text()
             .await
             .unwrap_or_else(|_| "Failed to read error response".to_string());
-        error!("HTTP error {}: {}", status, body);
+        
+        // Redact potentially sensitive error details (max 200 chars)
+        let safe_body = if body.len() > 200 {
+            format!("{}... [truncated]", &body[..200])
+        } else {
+            body.clone()
+        };
+        
+        error!("HTTP error {}: {}", status, safe_body);
         return Err(format!("HTTP {} error: {}", status, body));
     }
 

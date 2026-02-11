@@ -4,29 +4,14 @@
 //! Delegates to the AuthBroker for all operations.
 
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing::error;
 
 use super::super::protocol::JsonRpcResponse;
-use crate::auth::{AuthBroker, TokenRecord};
+use crate::auth::{get_or_init_broker, TokenRecord};
 
-/// Global auth broker instance.
-/// Initialised lazily on first `auth.*` request.
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialise the auth broker.
-async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
-    AUTH_BROKER
-        .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
-        })
+/// Get the shared auth broker instance.
+async fn get_broker() -> Result<std::sync::Arc<crate::auth::AuthBroker>, JsonRpcResponse> {
+    get_or_init_broker()
         .await
         .map_err(|e| {
             error!("Failed to initialise auth broker: {}", e);

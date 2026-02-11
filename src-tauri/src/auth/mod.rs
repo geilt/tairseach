@@ -12,9 +12,11 @@ pub mod provider;
 pub mod store;
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use self::provider::google::GoogleProvider;
 use self::provider::OAuthProvider;
@@ -23,23 +25,50 @@ use self::store::TokenStore;
 // ── Public types ────────────────────────────────────────────────────────────
 
 /// Stored token record (decrypted form)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct TokenRecord {
+    #[zeroize(skip)]
     pub provider: String,
+    #[zeroize(skip)]
     pub account: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub client_id: String,
     #[serde(default)]
     pub client_secret: String,
+    #[zeroize(skip)]
     pub token_type: String,
     pub access_token: String,
     pub refresh_token: String,
+    #[zeroize(skip)]
     pub expiry: String,
+    #[zeroize(skip)]
     pub scopes: Vec<String>,
     #[serde(default)]
+    #[zeroize(skip)]
     pub issued_at: String,
     #[serde(default)]
+    #[zeroize(skip)]
     pub last_refreshed: String,
+}
+
+// Custom Debug implementation that redacts sensitive fields
+impl fmt::Debug for TokenRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TokenRecord")
+            .field("provider", &self.provider)
+            .field("account", &self.account)
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("token_type", &self.token_type)
+            .field("access_token", &"[REDACTED]")
+            .field("refresh_token", &"[REDACTED]")
+            .field("expiry", &self.expiry)
+            .field("scopes", &self.scopes)
+            .field("issued_at", &self.issued_at)
+            .field("last_refreshed", &self.last_refreshed)
+            .finish()
+    }
 }
 
 /// Lightweight account info (no secrets)
@@ -403,13 +432,15 @@ impl AuthBroker {
     }
 }
 
-// ── Tauri commands ──────────────────────────────────────────────────────────
+// ── Global AuthBroker Instance ──────────────────────────────────────────────
 
 use once_cell::sync::OnceCell;
 
 static AUTH_BROKER_INSTANCE: OnceCell<Arc<AuthBroker>> = OnceCell::new();
 
-async fn get_or_init_broker() -> Result<Arc<AuthBroker>, String> {
+/// Get or initialize the global AuthBroker instance.
+/// This is shared across both Tauri commands and socket proxy handlers.
+pub async fn get_or_init_broker() -> Result<Arc<AuthBroker>, String> {
     if let Some(broker) = AUTH_BROKER_INSTANCE.get() {
         return Ok(Arc::clone(broker));
     }
@@ -425,6 +456,8 @@ async fn get_or_init_broker() -> Result<Arc<AuthBroker>, String> {
         }
     }
 }
+
+// ── Tauri commands ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthState {

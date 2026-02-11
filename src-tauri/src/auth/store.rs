@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn};
+use zeroize::Zeroizing;
 
 use super::crypto;
 use super::{AccountInfo, TokenRecord};
@@ -51,8 +52,8 @@ impl Default for Metadata {
 pub struct TokenStore {
     /// Base directory: `~/.tairseach/auth/`
     base_dir: PathBuf,
-    /// Master encryption key
-    master_key: [u8; 32],
+    /// Master encryption key (zeroized on drop)
+    master_key: Zeroizing<[u8; 32]>,
     /// In-memory metadata cache
     metadata: Metadata,
 }
@@ -68,6 +69,14 @@ impl TokenStore {
         let providers_dir = base_dir.join("providers").join("google");
         fs::create_dir_all(&providers_dir)
             .map_err(|e| format!("Failed to create auth dir: {}", e))?;
+
+        // Set restrictive permissions on auth directory (macOS/Unix only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&base_dir, fs::Permissions::from_mode(0o700))
+                .map_err(|e| format!("Failed to set auth dir permissions: {}", e))?;
+        }
 
         // Get or create master key
         let master_key = crypto::get_or_create_master_key()?;
@@ -85,6 +94,15 @@ impl TokenStore {
                 .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
             fs::write(&metadata_path, &json)
                 .map_err(|e| format!("Failed to write metadata: {}", e))?;
+
+            // Set restrictive file permissions (0600)
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&metadata_path, fs::Permissions::from_mode(0o600))
+                    .map_err(|e| format!("Failed to set metadata file permissions: {}", e))?;
+            }
+
             m
         };
 
@@ -96,7 +114,7 @@ impl TokenStore {
 
         Ok(Self {
             base_dir,
-            master_key,
+            master_key: Zeroizing::new(master_key),
             metadata,
         })
     }
@@ -145,9 +163,9 @@ impl TokenStore {
         let encrypted = fs::read(&file_path)
             .map_err(|e| format!("Failed to read token file: {}", e))?;
 
-        let decrypted = crypto::decrypt(&self.master_key, &encrypted)?;
+        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted)?);
 
-        let record: TokenRecord = serde_json::from_slice(&decrypted)
+        let record: TokenRecord = serde_json::from_slice(&*decrypted)
             .map_err(|e| format!("Failed to parse token JSON: {}", e))?;
 
         Ok(Some(record))
@@ -170,6 +188,14 @@ impl TokenStore {
         let encrypted = crypto::encrypt(&self.master_key, &json)?;
         fs::write(&file_abs, &encrypted)
             .map_err(|e| format!("Failed to write token file: {}", e))?;
+
+        // Set restrictive file permissions (0600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file_abs, fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("Failed to set token file permissions: {}", e))?;
+        }
 
         // Update metadata
         let now = chrono::Utc::now().to_rfc3339();
@@ -227,8 +253,8 @@ impl TokenStore {
 
         let encrypted = fs::read(&file_path)
             .map_err(|e| format!("Failed to read gog passphrase file: {}", e))?;
-        let decrypted = crypto::decrypt(&self.master_key, &encrypted)?;
-        let passphrase = String::from_utf8(decrypted)
+        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted)?);
+        let passphrase = String::from_utf8(decrypted.to_vec())
             .map_err(|e| format!("Invalid gog passphrase encoding: {}", e))?;
 
         Ok(Some(passphrase))
@@ -240,6 +266,15 @@ impl TokenStore {
         let encrypted = crypto::encrypt(&self.master_key, passphrase.as_bytes())?;
         fs::write(&file_path, &encrypted)
             .map_err(|e| format!("Failed to write gog passphrase: {}", e))?;
+
+        // Set restrictive file permissions (0600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file_path, fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("Failed to set passphrase file permissions: {}", e))?;
+        }
+
         Ok(())
     }
 
@@ -251,6 +286,15 @@ impl TokenStore {
             .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
         fs::write(&path, &json)
             .map_err(|e| format!("Failed to write metadata: {}", e))?;
+
+        // Set restrictive file permissions (0600)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("Failed to set metadata file permissions: {}", e))?;
+        }
+
         Ok(())
     }
 }
