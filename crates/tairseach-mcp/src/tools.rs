@@ -11,6 +11,7 @@ use crate::protocol::{McpTool, ToolAnnotations, ToolContent, ToolsCallResponse, 
 #[derive(Debug, Clone)]
 pub struct ToolIndexEntry {
     pub tool_name: String,
+    pub method_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,10 +75,11 @@ impl ToolRegistry {
                     continue;
                 }
 
-                // Verify the tool has a method mapping (validation)
-                if !manifest.implementation.methods.contains_key(&t.name) {
+                // Get the method mapping from the manifest
+                let Some(method_name) = manifest.implementation.methods.get(&t.name) else {
+                    // Skip tools without method mappings
                     continue;
-                }
+                };
 
                 let mcp_name = format!("tairseach_{}", t.name);
                 if allowlist
@@ -85,6 +87,7 @@ impl ToolRegistry {
                         mcp_name.clone(),
                         ToolIndexEntry {
                             tool_name: t.name.clone(),
+                            method_name: method_name.clone(),
                         },
                     )
                     .is_some()
@@ -127,8 +130,8 @@ impl ToolRegistry {
             .await
             .map_err(|e| ToolCallError::Upstream(format!("socket connect failed: {}", e)))?;
 
-        // Send the tool name to the socket (the router will look it up and dispatch)
-        let mut req = SocketRequest::new(entry.tool_name.clone(), arguments);
+        // Send the method name (e.g., "server.status") to the socket
+        let mut req = SocketRequest::new(entry.method_name.clone(), arguments);
         req.id = Some(json!(1));
         let resp = client
             .call(req)
