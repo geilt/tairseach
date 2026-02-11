@@ -24,6 +24,20 @@ export interface TokenInfo {
   expiry: string
 }
 
+export interface TokenRecord {
+  provider: string
+  account: string
+  client_id: string
+  client_secret: string
+  token_type: string
+  access_token: string
+  refresh_token: string
+  expiry: string
+  scopes: string[]
+  issued_at?: string
+  last_refreshed?: string
+}
+
 interface AuthCacheData {
   status: AuthStatus | null
   accounts: AccountInfo[]
@@ -152,6 +166,28 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function storeToken(record: Omit<TokenRecord, 'issued_at' | 'last_refreshed'>): Promise<boolean> {
+    loading.value = true
+    error.value = null
+    try {
+      const fullRecord = {
+        ...record,
+        issued_at: new Date().toISOString(),
+        last_refreshed: '',
+      }
+      await invoke('auth_store_token', { record: fullRecord })
+      await loadAccounts({ silent: true })
+      await loadStatus({ silent: true })
+      return true
+    } catch (e) {
+      error.value = String(e)
+      console.error('Failed to store token:', e)
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     status,
     accounts,
@@ -169,5 +205,6 @@ export const useAuthStore = defineStore('auth', () => {
     getToken,
     refreshToken,
     revokeToken,
+    storeToken,
   }
 })
