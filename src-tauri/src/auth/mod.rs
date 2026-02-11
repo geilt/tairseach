@@ -14,6 +14,7 @@ pub mod store;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -543,6 +544,281 @@ pub async fn auth_store_token(record: TokenRecord) -> Result<(), String> {
         .store_token(record)
         .await
         .map_err(|(_, msg)| msg)
+}
+
+#[tauri::command]
+pub async fn auth_start_google_oauth(_app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    use provider::google::{generate_code_verifier, generate_code_challenge, GoogleProvider};
+    use provider::OAuthProvider;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::net::TcpListener;
+    use tokio::time::{timeout, Duration};
+    
+    // 1. Generate PKCE pair
+    let code_verifier = generate_code_verifier();
+    let code_challenge = generate_code_challenge(&code_verifier);
+    
+    // 2. Start local HTTP server on random available port
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Failed to bind local server: {}", e))?;
+    
+    let local_addr = listener.local_addr()
+        .map_err(|e| format!("Failed to get local address: {}", e))?;
+    
+    let redirect_uri = format!("http://127.0.0.1:{}", local_addr.port());
+    info!("OAuth callback server listening on {}", redirect_uri);
+    
+    // 3. Build authorize URL with specified scopes
+    let scopes = vec![
+        "https://mail.google.com/".to_string(),
+        "https://www.googleapis.com/auth/calendar".to_string(),
+        "https://www.googleapis.com/auth/contacts".to_string(),
+        "https://www.googleapis.com/auth/drive".to_string(),
+        "openid".to_string(),
+        "email".to_string(),
+        "profile".to_string(),
+    ];
+    
+    let state = generate_state();
+    let provider = GoogleProvider::new();
+    let auth_url = provider.authorize_url(&scopes, &state, &code_challenge, &redirect_uri);
+    
+    info!("Opening browser for OAuth authorization");
+    
+    // 4. Open the URL in default browser
+    if let Err(e) = open::that(&auth_url) {
+        warn!("Failed to open browser automatically: {}. URL: {}", e, auth_url);
+        return Err(format!(
+            "Could not open browser. Please manually visit: {}",
+            auth_url
+        ));
+    }
+    
+    // 5. Wait for callback (with timeout)
+    let callback_result = timeout(Duration::from_secs(120), async {
+        loop {
+            let (mut socket, _) = listener.accept().await?;
+            
+            let mut reader = BufReader::new(&mut socket);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).await?;
+            
+            // Parse the request line: "GET /path?query HTTP/1.1"
+            let parts: Vec<&str> = request_line.split_whitespace().collect();
+            if parts.len() < 2 {
+                continue;
+            }
+            
+            let path_and_query = parts[1];
+            let query = if let Some(idx) = path_and_query.find('?') {
+                &path_and_query[idx + 1..]
+            } else {
+                ""
+            };
+            
+            // Parse query parameters
+            let params = parse_query_params(query);
+            
+            // Check if this is our OAuth callback
+            if let (Some(received_code), Some(received_state)) =
+                (params.get("code"), params.get("state"))
+            {
+                // 6. Validate state
+                if received_state != &state {
+                    let error_html = success_html("Error: Invalid state parameter. Please try again.");
+                    send_response(&mut socket, "400 Bad Request", error_html).await?;
+                    return Err::<(String, String), std::io::Error>(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "State mismatch",
+                    ));
+                }
+                
+                // Send success response to browser
+                let success_html = success_html("Authentication successful! You can close this tab.");
+                send_response(&mut socket, "200 OK", success_html).await?;
+                
+                return Ok((received_code.clone(), code_verifier.clone()));
+            } else if let Some(error) = params.get("error") {
+                let error_desc = params
+                    .get("error_description")
+                    .map(|s| s.as_str())
+                    .unwrap_or("Unknown error");
+                let error_html = success_html(&format!("Error: {} - {}", error, error_desc));
+                send_response(&mut socket, "400 Bad Request", error_html).await?;
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}: {}", error, error_desc),
+                ));
+            }
+        }
+    })
+    .await
+    .map_err(|_| "OAuth flow timed out after 120 seconds".to_string())?
+    .map_err(|e| format!("Callback server error: {}", e))?;
+    
+    let (code, verifier) = callback_result;
+    
+    // 7. Exchange code for tokens
+    info!("Exchanging authorization code for tokens");
+    let tokens = provider
+        .exchange_code(&code, &verifier, &redirect_uri)
+        .await?;
+    
+    // 8. Fetch user email from Google userinfo endpoint
+    let email = fetch_google_email(&tokens.access_token).await?;
+    
+    // 9. Store token in broker
+    let record = TokenRecord {
+        provider: "google".to_string(),
+        account: email.clone(),
+        client_id: provider.client_id.clone(),
+        client_secret: provider.client_secret.clone(),
+        token_type: tokens.token_type,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token.unwrap_or_default(),
+        expiry: tokens.expiry,
+        scopes: tokens.scopes,
+        issued_at: chrono::Utc::now().to_rfc3339(),
+        last_refreshed: String::new(),
+    };
+    
+    let broker = get_or_init_broker().await?;
+    broker.store_token(record).await.map_err(|(_, msg)| msg)?;
+    
+    info!("Successfully completed OAuth flow for {}", email);
+    
+    // 10. Return success with account email
+    Ok(serde_json::json!({
+        "success": true,
+        "email": email,
+        "message": "Authentication successful"
+    }))
+}
+
+// ── OAuth Flow Helpers ──────────────────────────────────────────────────────
+
+/// Generate a random state string for CSRF protection
+fn generate_state() -> String {
+    use rand::Rng;
+    let bytes: [u8; 16] = rand::rngs::OsRng.gen();
+    hex::encode(bytes)
+}
+
+/// Parse URL query parameters into a HashMap
+fn parse_query_params(query: &str) -> std::collections::HashMap<String, String> {
+    query
+        .split('&')
+        .filter_map(|part| {
+            let mut split = part.splitn(2, '=');
+            match (split.next(), split.next()) {
+                (Some(key), Some(value)) => {
+                    let decoded_value = urlencoding::decode(value).ok()?;
+                    Some((key.to_string(), decoded_value.into_owned()))
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Send HTTP response to the browser
+async fn send_response(
+    socket: &mut tokio::net::TcpStream,
+    status: &str,
+    html: String,
+) -> std::io::Result<()> {
+    let response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+        status,
+        html.len(),
+        html
+    );
+    socket.write_all(response.as_bytes()).await?;
+    socket.flush().await?;
+    Ok(())
+}
+
+/// Generate success/error HTML page
+fn success_html(message: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Tairseach - OAuth Authentication</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }}
+        .container {{
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 400px;
+        }}
+        h1 {{
+            color: #333;
+            margin-bottom: 1rem;
+        }}
+        p {{
+            color: #666;
+            line-height: 1.6;
+        }}
+        .icon {{
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">✨</div>
+        <h1>Tairseach</h1>
+        <p>{}</p>
+    </div>
+</body>
+</html>"#,
+        message
+    )
+}
+
+/// Fetch user email from Google userinfo endpoint
+async fn fetch_google_email(access_token: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    
+    let response = client
+        .get("https://www.googleapis.com/oauth2/v2/userinfo")
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch user info: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Failed to fetch user info: HTTP {}", response.status()));
+    }
+    
+    let user_info: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse user info: {}", e))?;
+    
+    user_info
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| "Email not found in user info".to_string())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

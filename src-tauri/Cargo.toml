@@ -39,6 +39,7 @@ base64 = "0.22"
 urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 zeroize = { version = "1", features = ["derive"] }
+open = "5"
 
 # macOS Keychain (replacing security CLI)
 [target.'cfg(target_os = "macos")'.dependencies.security-framework]

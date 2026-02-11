@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onActivated, ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '@/stores/auth'
 import type { AccountInfo } from '@/stores/auth'
 
 const store = useAuthStore()
 const actionMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 const showTokenForm = ref(false)
+const isConnectingOAuth = ref(false)
 const tokenFormData = ref({
   provider: '',
   account: '',
@@ -15,6 +17,8 @@ const tokenFormData = ref({
   scopes: '',
   expiryDays: '365',
 })
+
+const manualProviderOptions = ['Oura', 'Jira', '1Password', 'Other']
 
 onMounted(() => {
   void store.init()
@@ -119,11 +123,30 @@ async function handleRevoke(account: AccountInfo) {
   setTimeout(() => actionMessage.value = null, 3000)
 }
 
-function handleConnectGoogle() {
+async function handleConnectGoogle() {
+  isConnectingOAuth.value = true
   actionMessage.value = {
-    type: 'error',
-    text: 'OAuth PKCE flow not yet implemented. Use the socket API or CLI for now.',
+    type: 'success',
+    text: 'Opening Google sign-in...',
   }
+  
+  try {
+    const result = await invoke<{ success: boolean; account: string }>('auth_start_google_oauth')
+    actionMessage.value = {
+      type: 'success',
+      text: `Connected: ${result.account}`,
+    }
+    // Reload accounts list
+    await store.loadAccounts()
+  } catch (e) {
+    actionMessage.value = {
+      type: 'error',
+      text: `OAuth failed: ${e}`,
+    }
+  } finally {
+    isConnectingOAuth.value = false
+  }
+  
   setTimeout(() => actionMessage.value = null, 5000)
 }
 
@@ -348,8 +371,9 @@ async function handleSubmitToken() {
             <div 
               v-for="provider in store.providers" 
               :key="provider"
-              class="p-3 rounded-lg bg-naonur-fog/10 border border-naonur-fog/20 hover:border-naonur-gold/30 transition-colors cursor-pointer group"
-              @click="provider === 'google' ? handleConnectGoogle() : null"
+              class="p-3 rounded-lg bg-naonur-fog/10 border border-naonur-fog/20 hover:border-naonur-gold/30 transition-colors"
+              :class="{ 'cursor-pointer group': provider === 'google' && !isConnectingOAuth }"
+              @click="provider === 'google' && !isConnectingOAuth ? handleConnectGoogle() : null"
             >
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -363,24 +387,56 @@ async function handleSubmitToken() {
                     </p>
                   </div>
                 </div>
-                <button class="btn btn-primary text-xs px-3 py-1">
-                  Connect
+                <button 
+                  v-if="provider === 'google'"
+                  class="btn btn-primary text-xs px-3 py-1"
+                  :disabled="isConnectingOAuth"
+                >
+                  <span v-if="isConnectingOAuth" class="flex items-center gap-2">
+                    <span class="animate-spin">⏳</span>
+                    Connecting...
+                  </span>
+                  <span v-else>Connect</span>
+                </button>
+                <button 
+                  v-else
+                  class="btn btn-primary text-xs px-3 py-1 opacity-50 cursor-not-allowed"
+                  disabled
+                >
+                  Soon
                 </button>
               </div>
             </div>
           </div>
           
-          <div class="mt-3 p-2 rounded-lg bg-naonur-rust/10 border border-naonur-rust/30">
-            <p class="text-xs text-naonur-rust">
-              OAuth PKCE flow UI coming soon. Use socket API (<code class="font-mono">auth.store</code>) or CLI for now.
-            </p>
-          </div>
+          <!-- OAuth Loading Indicator -->
+          <Transition
+            enter-active-class="transition-all duration-300"
+            enter-from-class="opacity-0 max-h-0"
+            enter-to-class="opacity-100 max-h-20"
+            leave-active-class="transition-all duration-300"
+            leave-from-class="opacity-100 max-h-20"
+            leave-to-class="opacity-0 max-h-0"
+          >
+            <div v-if="isConnectingOAuth" class="mt-3 p-3 rounded-lg bg-naonur-gold/10 border border-naonur-gold/30 overflow-hidden">
+              <div class="flex items-center gap-3">
+                <span class="text-xl animate-spin">⏳</span>
+                <div>
+                  <p class="text-sm text-naonur-bone font-medium">OAuth in progress...</p>
+                  <p class="text-xs text-naonur-smoke">Complete sign-in in your browser. This may take up to 2 minutes.</p>
+                </div>
+              </div>
+            </div>
+          </Transition>
         </div>
 
         <!-- Manual Token Entry -->
         <div class="pt-4 border-t border-naonur-fog/20">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm text-naonur-ash">Manual Token / API Key</h3>
+            <div>
+              <h3 class="text-sm text-naonur-ash">Store API Token</h3>
+              <p class="text-xs text-naonur-smoke mt-0.5">For Oura, Jira, 1Password, and other bearer token services</p>
+            </div>
             <button 
               v-if="!showTokenForm"
               class="btn btn-secondary text-xs px-3 py-1"
@@ -404,13 +460,16 @@ async function handleSubmitToken() {
                   <div class="grid grid-cols-2 gap-3">
                     <div>
                       <label class="text-xs text-naonur-smoke block mb-1">Provider *</label>
-                      <input
+                      <select
                         v-model="tokenFormData.provider"
-                        type="text"
-                        placeholder="e.g., oura, jira, 1password"
                         class="input-field w-full"
                         required
-                      />
+                      >
+                        <option value="" disabled>Select provider...</option>
+                        <option v-for="provider in manualProviderOptions" :key="provider" :value="provider">
+                          {{ provider }}
+                        </option>
+                      </select>
                     </div>
                     <div>
                       <label class="text-xs text-naonur-smoke block mb-1">Account / Label *</label>
@@ -492,10 +551,6 @@ async function handleSubmitToken() {
               </form>
             </div>
           </Transition>
-
-          <p class="text-xs text-naonur-smoke mt-3">
-            For services like Oura, Jira, or 1Password that use long-lived API tokens. Static tokens won't auto-refresh.
-          </p>
         </div>
       </div>
     </template>

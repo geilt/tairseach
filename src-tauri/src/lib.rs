@@ -186,6 +186,7 @@ pub fn run() {
             auth::auth_refresh_token,
             auth::auth_revoke_token,
             auth::auth_store_token,
+            auth::auth_start_google_oauth,
             // Proxy
             get_proxy_status,
             start_proxy_server,
