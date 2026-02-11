@@ -581,7 +581,18 @@ pub async fn auth_start_google_oauth(_app: tauri::AppHandle) -> Result<serde_jso
     ];
     
     let state = generate_state();
-    let provider = GoogleProvider::new();
+    
+    // Load credentials from saved Google OAuth config, fall back to defaults
+    let provider = match crate::config::get_google_oauth_config().await {
+        Ok(Some(config)) if !config.client_id.is_empty() => {
+            info!("Using saved Google OAuth credentials");
+            GoogleProvider::with_credentials(config.client_id, config.client_secret)
+        }
+        _ => {
+            warn!("No saved Google OAuth credentials found, using defaults");
+            GoogleProvider::new()
+        }
+    };
     let auth_url = provider.authorize_url(&scopes, &state, &code_challenge, &redirect_uri);
     
     info!("Opening browser for OAuth authorization");
