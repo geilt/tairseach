@@ -3,6 +3,7 @@
 //! Trait-based provider system allowing multiple OAuth providers (Google, Microsoft, etc.)
 
 pub mod google;
+pub mod onepassword;
 
 use serde::{Deserialize, Serialize};
 

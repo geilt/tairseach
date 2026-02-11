@@ -1,0 +1,185 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "oura",
+  "name": "Oura Ring",
+  "description": "Access Oura Ring health data via API v2 (sleep, activity, readiness, heart rate).",
+  "version": "1.0.0",
+  "category": "health",
+  "requires": {
+    "credentials": [
+      {
+        "id": "oura-personal-access-token",
+        "provider": "oura",
+        "kind": "token",
+        "description": "Oura personal access token"
+      }
+    ],
+    "permissions": []
+  },
+  "tools": [
+    {
+      "name": "oura_sleep",
+      "description": "Get sleep sessions data. Returns detailed sleep metrics including sleep stages, duration, and efficiency.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "oura_activity",
+      "description": "Get daily activity data including steps, calories, and active time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "oura_readiness",
+      "description": "Get daily readiness scores based on sleep, activity, and recovery metrics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD format)",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "oura_heart_rate",
+      "description": "Get heart rate data. Returns time-series heart rate measurements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "start_datetime": {
+            "type": "string",
+            "description": "Start datetime (ISO 8601 format)"
+          },
+          "end_datetime": {
+            "type": "string",
+            "description": "End datetime (ISO 8601 format)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "oura",
+    "methods": {
+      "oura_sleep": "oura.sleep",
+      "oura_activity": "oura.activity",
+      "oura_readiness": "oura.readiness",
+      "oura_heart_rate": "oura.heartRate"
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

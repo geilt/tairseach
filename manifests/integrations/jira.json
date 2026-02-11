@@ -1,0 +1,313 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "jira",
+  "name": "Jira",
+  "description": "Search, create, and manage Jira issues via REST API v3 and Agile API v1.",
+  "version": "1.0.0",
+  "category": "productivity",
+  "requires": {
+    "credentials": [
+      {
+        "id": "jira-api-token",
+        "provider": "jira",
+        "kind": "token",
+        "description": "Jira API token (Basic auth: email + token)"
+      }
+    ],
+    "permissions": []
+  },
+  "tools": [
+    {
+      "name": "jira_issues_search",
+      "description": "Search for issues using JQL (Jira Query Language). Returns matching issues with specified fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL (e.g., 'https://your-domain.atlassian.net')"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email (for basic auth)"
+          },
+          "jql": {
+            "type": "string",
+            "description": "JQL query string (e.g., 'project = FOO AND status = Open')"
+          },
+          "fields": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Fields to return (default: all)"
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50,
+            "description": "Maximum number of results"
+          }
+        },
+        "required": ["base_url", "jql"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "jira_issues_get",
+      "description": "Get full details of a specific issue by key (e.g., 'PROJ-123').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          },
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key (e.g., 'PROJ-123')"
+          }
+        },
+        "required": ["base_url", "issue_key"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "jira_issues_create",
+      "description": "Create a new issue. Requires project, issue type, and summary at minimum.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          },
+          "issue": {
+            "type": "object",
+            "description": "Issue data (must include fields.project, fields.issuetype, fields.summary)",
+            "additionalProperties": true
+          }
+        },
+        "required": ["base_url", "issue"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "jira_issues_update",
+      "description": "Update an existing issue's fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          },
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key (e.g., 'PROJ-123')"
+          },
+          "update": {
+            "type": "object",
+            "description": "Update data (fields to modify)",
+            "additionalProperties": true
+          }
+        },
+        "required": ["base_url", "issue_key", "update"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "jira_issues_transition",
+      "description": "Transition an issue to a different status (e.g., 'In Progress' → 'Done').",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          },
+          "issue_key": {
+            "type": "string",
+            "description": "Issue key (e.g., 'PROJ-123')"
+          },
+          "transition_id": {
+            "type": "string",
+            "description": "Transition ID (get from /issue/{key}/transitions)"
+          },
+          "fields": {
+            "type": "object",
+            "description": "Additional fields to set during transition",
+            "additionalProperties": true
+          }
+        },
+        "required": ["base_url", "issue_key", "transition_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "jira_projects_list",
+      "description": "List all projects accessible to the authenticated user.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          }
+        },
+        "required": ["base_url"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "jira_sprints_list",
+      "description": "List sprints for a Scrum board (Agile API).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account name (default: 'default')",
+            "default": "default"
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Jira instance base URL"
+          },
+          "email": {
+            "type": "string",
+            "description": "Jira account email"
+          },
+          "board_id": {
+            "type": "string",
+            "description": "Board ID"
+          }
+        },
+        "required": ["base_url", "board_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "jira",
+    "methods": {
+      "jira_issues_search": "jira.issues.search",
+      "jira_issues_get": "jira.issues.get",
+      "jira_issues_create": "jira.issues.create",
+      "jira_issues_update": "jira.issues.update",
+      "jira_issues_transition": "jira.issues.transition",
+      "jira_projects_list": "jira.projects.list",
+      "jira_sprints_list": "jira.sprints.list"
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

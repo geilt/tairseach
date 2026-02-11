@@ -10,7 +10,10 @@ pub mod contacts;
 pub mod files;
 pub mod gmail;
 pub mod google_calendar;
+pub mod jira;
 pub mod location;
+pub mod onepassword;
+pub mod oura;
 pub mod permissions;
 pub mod reminders;
 pub mod screen;
@@ -274,6 +277,9 @@ impl HandlerRegistry {
             "config" => config::handle(action, &request.params, id).await,
             "gmail" => gmail::handle(action, &request.params, id).await,
             "gcalendar" => google_calendar::handle(action, &request.params, id).await,
+            "op" | "onepassword" => onepassword::handle(action, &request.params, id).await,
+            "oura" => oura::handle(action, &request.params, id).await,
+            "jira" => jira::handle(action, &request.params, id).await,
             "server" => self.handle_server(action, &request.params, id).await,
             _ => JsonRpcResponse::method_not_found(id, &request.method),
         }
