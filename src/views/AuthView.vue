@@ -123,6 +123,12 @@ async function handleRevoke(account: AccountInfo) {
   setTimeout(() => actionMessage.value = null, 3000)
 }
 
+function cancelOAuth() {
+  isConnectingOAuth.value = false
+  actionMessage.value = { type: 'error', text: 'OAuth cancelled.' }
+  setTimeout(() => actionMessage.value = null, 3000)
+}
+
 async function handleConnectGoogle() {
   isConnectingOAuth.value = true
   actionMessage.value = {
@@ -419,12 +425,20 @@ async function handleSubmitToken() {
             leave-to-class="opacity-0 max-h-0"
           >
             <div v-if="isConnectingOAuth" class="mt-3 p-3 rounded-lg bg-naonur-gold/10 border border-naonur-gold/30 overflow-hidden">
-              <div class="flex items-center gap-3">
-                <span class="text-xl animate-spin">⏳</span>
-                <div>
-                  <p class="text-sm text-naonur-bone font-medium">OAuth in progress...</p>
-                  <p class="text-xs text-naonur-smoke">Complete sign-in in your browser. This may take up to 2 minutes.</p>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <span class="text-xl animate-spin">⏳</span>
+                  <div>
+                    <p class="text-sm text-naonur-bone font-medium">OAuth in progress...</p>
+                    <p class="text-xs text-naonur-smoke">Complete sign-in in your browser. This may take up to 2 minutes.</p>
+                  </div>
                 </div>
+                <button
+                  class="px-3 py-1.5 text-xs font-medium rounded-md bg-naonur-blood/20 text-naonur-blood border border-naonur-blood/30 hover:bg-naonur-blood/30 transition-colors"
+                  @click="cancelOAuth"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </Transition>
