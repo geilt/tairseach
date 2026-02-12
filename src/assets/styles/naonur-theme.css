@@ -4,10 +4,10 @@
  */
 
 /* ═══════════════════════════════════════════════════════════════
-   FONTS
+   FONTS — Bundled locally for zero-network operation
    ═══════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import './fonts.css';
 
 /* ═══════════════════════════════════════════════════════════════
    CSS CUSTOM PROPERTIES (NAONÚR PALETTE)
