@@ -238,8 +238,6 @@ async function saveCredential(typeId: string) {
 }
 
 async function deleteCredential(typeId: string, label: string) {
-  if (!confirm(`Delete ${label}? This cannot be undone.`)) return
-  
   try {
     await invoke('auth_credentials_delete', { credType: typeId, label })
     requestAnimationFrame(() => {
@@ -430,10 +428,6 @@ async function handleRefresh(account: AccountInfo) {
 }
 
 async function handleRevoke(account: AccountInfo) {
-  if (!confirm(`Delete ${account.account}? This will permanently remove the stored credentials.`)) {
-    return
-  }
-  
   actionMessage.value = null
   
   // Try revoke first (works for OAuth providers like Google), then delete
