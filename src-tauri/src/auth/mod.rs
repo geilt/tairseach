@@ -340,9 +340,9 @@ impl AuthBroker {
         // Generate a new one
         let passphrase = crypto::generate_passphrase();
 
-        // Persist it
+        // Persist it (requires write lock on store)
         {
-            let store = self.store.read().await;
+            let mut store = self.store.write().await;
             store
                 .save_gog_passphrase(&passphrase)
                 .map_err(|e| (error_codes::MASTER_KEY_NOT_INITIALIZED, e))?;

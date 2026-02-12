@@ -223,30 +223,8 @@ impl TokenStore {
         let json = serde_json::to_vec(record)
             .map_err(|e| format!("Failed to serialize token: {}", e))?;
 
-        // Encrypt (returns: nonce || ciphertext+tag)
-        let encrypted_blob = crypto::encrypt(&self.master_key, &json)?;
-
-        // Split into iv, ciphertext, tag
-        // AES-256-GCM: nonce=12 bytes, tag=16 bytes (appended to ciphertext by aes-gcm)
-        if encrypted_blob.len() < 12 + 16 {
-            return Err("Encrypted blob too short".to_string());
-        }
-
-        let iv = &encrypted_blob[0..12];
-        let ciphertext_and_tag = &encrypted_blob[12..];
-        let tag_offset = ciphertext_and_tag.len() - 16;
-        let ciphertext = &ciphertext_and_tag[..tag_offset];
-        let tag = &ciphertext_and_tag[tag_offset..];
-
-        // Store as base64
-        let entry = CredentialEntry {
-            encrypted: true,
-            algorithm: Some("aes-256-gcm".to_string()),
-            iv: Some(BASE64.encode(iv)),
-            tag: Some(BASE64.encode(tag)),
-            data: BASE64.encode(ciphertext),
-        };
-
+        // Encrypt and store
+        let entry = encrypt_to_entry(&self.master_key, &json)?;
         self.credentials.credentials.insert(key.clone(), entry);
 
         // Update schema
@@ -300,11 +278,26 @@ impl TokenStore {
         }
     }
 
-    /// Save the gog passphrase (encrypted).
-    pub fn save_gog_passphrase(&self, _passphrase: &str) -> Result<(), String> {
-        // We need mutable self, but this is called from immutable context in AuthBroker
-        // TODO: Refactor to allow mutable access for this operation
-        Err("save_gog_passphrase requires mutable access - not yet implemented in v2".to_string())
+    /// Save the gog passphrase as an encrypted credential entry.
+    pub fn save_gog_passphrase(&mut self, passphrase: &str) -> Result<(), String> {
+        // Store as a synthetic TokenRecord under _internal:gog_passphrase
+        let record = super::TokenRecord {
+            provider: "_internal".to_string(),
+            account: "gog_passphrase".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            token_type: "passphrase".to_string(),
+            access_token: passphrase.to_string(),
+            refresh_token: String::new(),
+            expiry: "9999-12-31T23:59:59Z".to_string(),
+            scopes: vec![],
+            issued_at: chrono::Utc::now().to_rfc3339(),
+            last_refreshed: String::new(),
+        };
+
+        self.save_token(&record)?;
+        info!("Saved gog passphrase to encrypted credential store");
+        Ok(())
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
@@ -357,26 +350,7 @@ impl TokenStore {
             
             if !entry.encrypted {
                 info!("Auto-encrypting plaintext credential: {}", key);
-
-                // Encrypt the plaintext data
-                let plaintext = entry.data.as_bytes();
-                let encrypted_blob = crypto::encrypt(&self.master_key, plaintext)?;
-
-                // Split into components
-                let iv = &encrypted_blob[0..12];
-                let ciphertext_and_tag = &encrypted_blob[12..];
-                let tag_offset = ciphertext_and_tag.len() - 16;
-                let ciphertext = &ciphertext_and_tag[..tag_offset];
-                let tag = &ciphertext_and_tag[tag_offset..];
-
-                let new_entry = CredentialEntry {
-                    encrypted: true,
-                    algorithm: Some("aes-256-gcm".to_string()),
-                    iv: Some(BASE64.encode(iv)),
-                    tag: Some(BASE64.encode(tag)),
-                    data: BASE64.encode(ciphertext),
-                };
-
+                let new_entry = encrypt_to_entry(&self.master_key, entry.data.as_bytes())?;
                 self.credentials.credentials.insert(key, new_entry);
                 modified = true;
             }
@@ -497,6 +471,28 @@ impl TokenStore {
 /// Build the credential key for a provider:account pair.
 fn credential_key(provider: &str, account: &str) -> String {
     format!("{}:{}", provider, account)
+}
+
+/// Encrypt plaintext bytes and return a CredentialEntry.
+/// Splits AES-256-GCM output (nonce || ciphertext || tag) into base64 components.
+fn encrypt_to_entry(key: &[u8; 32], plaintext: &[u8]) -> Result<CredentialEntry, String> {
+    let blob = crypto::encrypt(key, plaintext)?;
+    if blob.len() < 12 + 16 {
+        return Err("Encrypted blob too short".to_string());
+    }
+    let iv = &blob[0..12];
+    let ciphertext_and_tag = &blob[12..];
+    let tag_offset = ciphertext_and_tag.len() - 16;
+    let ciphertext = &ciphertext_and_tag[..tag_offset];
+    let tag = &ciphertext_and_tag[tag_offset..];
+
+    Ok(CredentialEntry {
+        encrypted: true,
+        algorithm: Some("aes-256-gcm".to_string()),
+        iv: Some(BASE64.encode(iv)),
+        tag: Some(BASE64.encode(tag)),
+        data: BASE64.encode(ciphertext),
+    })
 }
 
 #[cfg(test)]
