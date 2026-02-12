@@ -41,11 +41,12 @@ async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
 /// 1Password Service Account API client
 struct OnePasswordApi {
     token: String,
+    base_url: String,
     client: reqwest::Client,
 }
 
 impl OnePasswordApi {
-    const API_BASE_URL: &'static str = "https://api.1password.com";
+    const DEFAULT_API_BASE_URL: &'static str = "https://api.1password.com";
 
     fn new(token: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
@@ -53,14 +54,61 @@ impl OnePasswordApi {
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
+        // Extract API base URL from JWT token payload (aud claim)
+        let base_url = Self::extract_api_url(&token)
+            .unwrap_or_else(|| Self::DEFAULT_API_BASE_URL.to_string());
+        
+        info!("1Password API base URL: {}", base_url);
+
         Ok(Self {
             token,
+            base_url,
             client,
         })
     }
 
+    /// Extract the API base URL from a 1Password SA token (JWT format: ops_<jwt>)
+    fn extract_api_url(token: &str) -> Option<String> {
+        use base64::Engine;
+        
+        let jwt = token.strip_prefix("ops_")?;
+        let parts: Vec<&str> = jwt.split('.').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        
+        // Decode payload with padding
+        let payload = parts[1];
+        let padded = match payload.len() % 4 {
+            0 => payload.to_string(),
+            n => format!("{}{}", payload, "=".repeat(4 - n)),
+        };
+        
+        let decoded = base64::engine::general_purpose::URL_SAFE
+            .decode(&padded)
+            .ok()?;
+        let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+        
+        // aud can be a string or array of strings
+        let aud = claims.get("aud")?;
+        let url = if let Some(s) = aud.as_str() {
+            s.to_string()
+        } else if let Some(arr) = aud.as_array() {
+            arr.first()?.as_str()?.to_string()
+        } else {
+            return None;
+        };
+        
+        // Ensure it's a proper URL
+        if url.starts_with("https://") {
+            Some(url.trim_end_matches('/').to_string())
+        } else {
+            None
+        }
+    }
+
     async fn get(&self, path: &str) -> Result<Value, String> {
-        let url = format!("{}{}", Self::API_BASE_URL, path);
+        let url = format!("{}{}", &self.base_url, path);
         
         let response = self
             .client
@@ -95,7 +143,7 @@ impl OnePasswordApi {
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
-        let url = format!("{}{}", Self::API_BASE_URL, path);
+        let url = format!("{}{}", &self.base_url, path);
         
         let response = self
             .client
