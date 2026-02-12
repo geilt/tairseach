@@ -173,6 +173,9 @@ pub fn run() {
             // Monitor
             monitor::get_events,
             monitor::get_manifest_summary,
+            monitor::get_all_manifests,
+            monitor::check_socket_alive,
+            monitor::test_mcp_tool,
             // Profiles
             profiles::get_profiles,
             profiles::save_profile,

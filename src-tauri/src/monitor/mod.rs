@@ -5,8 +5,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use crate::manifest::{load_manifests, Manifest};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivityEvent {
@@ -170,4 +172,130 @@ pub async fn get_manifest_summary() -> Result<ManifestSummary, String> {
         tools_available: tools,
         mcp_exposed,
     })
+}
+
+/// Load all manifests from disk
+#[tauri::command]
+pub async fn get_all_manifests() -> Result<Vec<Manifest>, String> {
+    let root = manifests_root();
+    load_manifests(&root)
+}
+
+/// Check if the Tairseach socket is alive and responding
+#[tauri::command]
+pub async fn check_socket_alive() -> Result<serde_json::Value, String> {
+    let socket_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join(".tairseach/tairseach.sock");
+
+    if !socket_path.exists() {
+        return Ok(serde_json::json!({
+            "alive": false,
+            "reason": "Socket file does not exist"
+        }));
+    }
+
+    // Try to connect and send a simple status request
+    match UnixStream::connect(&socket_path) {
+        Ok(mut stream) => {
+            // Send a JSON-RPC status request
+            let request = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server.status",
+                "params": {}
+            });
+            
+            let request_str = serde_json::to_string(&request).unwrap() + "\n";
+            
+            if stream.write_all(request_str.as_bytes()).is_err() {
+                return Ok(serde_json::json!({
+                    "alive": false,
+                    "reason": "Failed to write to socket"
+                }));
+            }
+            
+            // Try to read response
+            let mut buffer = vec![0u8; 4096];
+            match stream.read(&mut buffer) {
+                Ok(n) if n > 0 => {
+                    Ok(serde_json::json!({
+                        "alive": true,
+                        "socket_path": socket_path.display().to_string()
+                    }))
+                }
+                _ => {
+                    Ok(serde_json::json!({
+                        "alive": false,
+                        "reason": "No response from socket"
+                    }))
+                }
+            }
+        }
+        Err(e) => {
+            Ok(serde_json::json!({
+                "alive": false,
+                "reason": format!("Connection failed: {}", e)
+            }))
+        }
+    }
+}
+
+/// Test an MCP tool by calling it through the socket
+#[tauri::command]
+pub async fn test_mcp_tool(
+    tool_name: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let socket_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join(".tairseach/tairseach.sock");
+
+    if !socket_path.exists() {
+        return Err("Socket file does not exist".to_string());
+    }
+
+    let mut stream = UnixStream::connect(&socket_path)
+        .map_err(|e| format!("Failed to connect to socket: {}", e))?;
+
+    // Send JSON-RPC request
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": params
+        }
+    });
+
+    let request_str = serde_json::to_string(&request).unwrap() + "\n";
+    
+    stream
+        .write_all(request_str.as_bytes())
+        .map_err(|e| format!("Failed to write to socket: {}", e))?;
+
+    // Read response
+    let mut buffer = vec![0u8; 65536]; // 64KB buffer
+    let n = stream
+        .read(&mut buffer)
+        .map_err(|e| format!("Failed to read from socket: {}", e))?;
+
+    if n == 0 {
+        return Err("No response from socket".to_string());
+    }
+
+    let response_str = String::from_utf8_lossy(&buffer[..n]);
+    
+    // Parse JSON-RPC response
+    let response: serde_json::Value = serde_json::from_str(&response_str)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    // Check for JSON-RPC error
+    if let Some(error) = response.get("error") {
+        return Err(format!("Tool execution error: {}", error));
+    }
+
+    // Return the result
+    Ok(response.get("result").cloned().unwrap_or(response))
 }

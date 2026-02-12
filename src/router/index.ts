@@ -7,6 +7,7 @@ import MonitorView from '../views/MonitorView.vue'
 import ActivityView from '../views/ActivityView.vue'
 import ProfilesView from '../views/ProfilesView.vue'
 import AuthView from '../views/AuthView.vue'
+import MCPView from '../views/MCPView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -58,6 +59,12 @@ const router = createRouter({
       name: 'auth',
       component: AuthView,
       meta: { title: 'Auth Services' },
+    },
+    {
+      path: '/mcp',
+      name: 'mcp',
+      component: MCPView,
+      meta: { title: 'MCP Tools' },
     },
   ],
 })
