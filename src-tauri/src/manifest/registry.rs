@@ -126,22 +126,41 @@ impl ManifestRegistry {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Event>(100);
 
-        let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
-                let _ = tx.blocking_send(event);
-            }
-        })
-        .map_err(|e| format!("Failed to create watcher: {}", e))?;
+        // Spawn the watcher on a dedicated OS thread to avoid FSEvents + tokio conflicts.
+        // The `notify` crate's macOS FSEvents backend manages its own CFRunLoop;
+        // mixing that with tokio's multi-threaded runtime causes double-free crashes.
+        std::thread::Builder::new()
+            .name("manifest-watcher".to_string())
+            .spawn(move || {
+                let mut watcher = match notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        let _ = tx.blocking_send(event);
+                    }
+                }) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        tracing::error!("Failed to create manifest watcher: {}", e);
+                        return;
+                    }
+                };
 
-        watcher
-            .watch(&base_dir, RecursiveMode::Recursive)
-            .map_err(|e| format!("Failed to watch directory: {}", e))?;
+                if let Err(e) = watcher.watch(&base_dir, RecursiveMode::Recursive) {
+                    tracing::error!("Failed to watch manifest directory: {}", e);
+                    return;
+                }
 
-        // Spawn background task to handle events
+                info!("Manifest watcher running on dedicated thread");
+
+                // Block this thread forever to keep the watcher alive.
+                // The watcher's internal CFRunLoop will process FSEvents.
+                loop {
+                    std::thread::park();
+                }
+            })
+            .map_err(|e| format!("Failed to spawn watcher thread: {}", e))?;
+
+        // Spawn tokio task to consume events and reload manifests
         tokio::spawn(async move {
-            // Keep watcher alive
-            let _watcher = watcher;
-
             while let Some(event) = rx.recv().await {
                 debug!("Manifest filesystem event: {:?}", event);
 

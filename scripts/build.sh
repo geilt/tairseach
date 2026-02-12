@@ -42,7 +42,7 @@ echo "      This may take 1-2 minutes..."
 npm run tauri build 2>&1 | while IFS= read -r line; do
     # Show progress indicators
     if [[ "$line" == *"Compiling"* ]]; then
-        echo -ne "\r      Compiling: $(echo "$line" | grep -oP '(?<=Compiling )[^ ]+' | head -1)                    "
+        echo -ne "\r      Compiling: $(echo "$line" | awk '/Compiling/ {print $2}')                    "
     elif [[ "$line" == *"Finished"* ]]; then
         echo -e "\r      ${GREEN}✓ Rust build complete${NC}                              "
     elif [[ "$line" == *"Bundling"*".app"* ]]; then
@@ -76,7 +76,7 @@ fi
 # Step 4: Verify signature
 echo -e "${YELLOW}[4/7]${NC} Verifying code signature..."
 VERIFY_OUTPUT=$(codesign -dv "$APP_BUNDLE" 2>&1)
-if echo "$VERIFY_OUTPUT" | grep -q "Signature="; then
+if echo "$VERIFY_OUTPUT" | grep -q "TeamIdentifier"; then
     TEAM_ID=$(echo "$VERIFY_OUTPUT" | grep "TeamIdentifier" | cut -d= -f2)
     echo -e "${GREEN}      ✓ Signature verified (Team: $TEAM_ID)${NC}"
 else
