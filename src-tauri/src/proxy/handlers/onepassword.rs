@@ -1,6 +1,6 @@
 //! 1Password Handler
 //!
-//! Socket handlers for 1Password Connect API methods.
+//! Socket handlers for 1Password Service Account API methods.
 //! Retrieves service account token from auth broker.
 
 use serde_json::Value;
@@ -38,15 +38,16 @@ async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
         })
 }
 
-/// 1Password Connect API client
+/// 1Password Service Account API client
 struct OnePasswordApi {
     token: String,
-    connect_host: String,
     client: reqwest::Client,
 }
 
 impl OnePasswordApi {
-    fn new(token: String, connect_host: String) -> Result<Self, String> {
+    const API_BASE_URL: &'static str = "https://api.1password.com";
+
+    fn new(token: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
@@ -54,13 +55,12 @@ impl OnePasswordApi {
 
         Ok(Self {
             token,
-            connect_host,
             client,
         })
     }
 
     async fn get(&self, path: &str) -> Result<Value, String> {
-        let url = format!("{}{}", self.connect_host, path);
+        let url = format!("{}{}", Self::API_BASE_URL, path);
         
         let response = self
             .client
@@ -87,7 +87,7 @@ impl OnePasswordApi {
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
-        let url = format!("{}{}", self.connect_host, path);
+        let url = format!("{}{}", Self::API_BASE_URL, path);
         
         let response = self
             .client
@@ -154,15 +154,10 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     // Retrieve 1Password token from auth broker
-    let account = match params.get("account").and_then(|v| v.as_str()) {
-        Some(acc) => acc,
-        None => {
-            return JsonRpcResponse::invalid_params(
-                id,
-                "Missing required parameter: account (e.g., 'default' or service account name)",
-            );
-        }
-    };
+    let account = params
+        .get("account")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
 
     let token_data = match auth_broker
         .get_token("onepassword", account, None)
@@ -187,15 +182,8 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         }
     };
 
-    // Get connect_host from params or use default
-    let connect_host = params
-        .get("connect_host")
-        .and_then(|v| v.as_str())
-        .unwrap_or("http://localhost:8080")
-        .to_string();
-
     // Create API client
-    let api = match OnePasswordApi::new(access_token, connect_host) {
+    let api = match OnePasswordApi::new(access_token) {
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create 1Password API client: {}", e);

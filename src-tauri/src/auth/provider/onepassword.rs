@@ -1,6 +1,6 @@
 //! 1Password Provider
 //!
-//! Manages 1Password Connect service account tokens.
+//! Manages 1Password Service Account tokens.
 //! Unlike OAuth providers, 1Password uses a fixed service account token.
 
 use serde::{Deserialize, Serialize};
@@ -10,62 +10,45 @@ use tracing::info;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OnePasswordToken {
     pub service_account_token: String,
-    pub connect_host: String,
 }
 
-/// 1Password provider (token-based, not OAuth)
-pub struct OnePasswordProvider;
+/// Provider name constant
+pub const PROVIDER_NAME: &str = "onepassword";
 
-impl OnePasswordProvider {
-    pub fn new() -> Self {
-        Self
-    }
+/// Validate a service account token by attempting a status check
+pub async fn validate_token(token: &str) -> Result<(), String> {
+    info!("Validating 1Password service account token");
 
-    pub fn name(&self) -> &str {
-        "onepassword"
-    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
 
-    /// Validate a service account token by attempting a status check
-    pub async fn validate_token(&self, token: &str, connect_host: &str) -> Result<(), String> {
-        info!("Validating 1Password service account token");
+    const API_BASE_URL: &str = "https://api.1password.com";
+    let url = format!("{}/v1/heartbeat", API_BASE_URL);
+    
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        let url = format!("{}/v1/heartbeat", connect_host);
-        
-        let response = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .send()
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Failed to read error response".to_string());
-            return Err(format!("Validation failed (HTTP {}): {}", status, body));
-        }
-
-        Ok(())
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        return Err(format!("Validation failed (HTTP {}): {}", status, body));
     }
 
-    /// Get default Connect host (localhost or cloud)
-    pub fn default_connect_host() -> String {
-        // Default to localhost for self-hosted Connect
-        "http://localhost:8080".to_string()
-    }
+    Ok(())
 }
 
-impl Default for OnePasswordProvider {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Get Service Account API base URL
+pub fn api_base_url() -> &'static str {
+    "https://api.1password.com"
 }
 
 #[cfg(test)]
@@ -74,13 +57,12 @@ mod tests {
 
     #[test]
     fn test_provider_name() {
-        let provider = OnePasswordProvider::new();
-        assert_eq!(provider.name(), "onepassword");
+        assert_eq!(PROVIDER_NAME, "onepassword");
     }
 
     #[test]
-    fn test_default_host() {
-        let host = OnePasswordProvider::default_connect_host();
-        assert!(!host.is_empty());
+    fn test_api_base_url() {
+        let url = api_base_url();
+        assert_eq!(url, "https://api.1password.com");
     }
 }
