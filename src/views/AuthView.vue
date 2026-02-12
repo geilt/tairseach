@@ -222,9 +222,11 @@ async function saveCredential(typeId: string) {
     })
     
     await loadAllCredentials()
+    await store.loadAccounts({ silent: true })
+    await store.loadStatus({ silent: true })
     
     // If 1Password, load vaults
-    if (typeId === '1password') {
+    if (typeId === '1password' || typeId === 'onepassword') {
       await load1PasswordVaults()
     }
   } catch (e) {
@@ -244,6 +246,8 @@ async function deleteCredential(typeId: string, label: string) {
       setFeedback('success', 'Credential deleted')
     })
     await loadAllCredentials()
+    await store.loadAccounts({ silent: true })
+    await store.loadStatus({ silent: true })
   } catch (e) {
     requestAnimationFrame(() => {
       setFeedback('error', `Failed to delete: ${e}`)
