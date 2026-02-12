@@ -125,7 +125,7 @@ fn get_hardware_uuid() -> Result<String, String> {
 /// Fetch the hardware UUID from ioreg (internal, uncached).
 #[cfg(target_os = "macos")]
 fn fetch_hardware_uuid() -> Result<String, String> {
-    let output = Command::new("ioreg")
+    let output = Command::new("/usr/sbin/ioreg")
         .args(["-d2", "-c", "IOPlatformExpertDevice"])
         .output()
         .map_err(|e| format!("Failed to execute ioreg: {}", e))?;
