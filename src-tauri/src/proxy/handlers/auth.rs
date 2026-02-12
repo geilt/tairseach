@@ -35,6 +35,14 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "revoke" => handle_revoke(params, id).await,
         "store" | "import" => handle_store(params, id).await,
         "gogPassphrase" => handle_gog_passphrase(params, id).await,
+        // Credential type registry
+        "credential_types" | "credentialTypes" => handle_credential_types(params, id).await,
+        "credential_types.custom.create" => handle_create_custom_type(params, id).await,
+        // Credential CRUD
+        "credentials.store" => handle_store_credential(params, id).await,
+        "credentials.get" => handle_get_credential(params, id).await,
+        "credentials.list" => handle_list_credentials(params, id).await,
+        "credentials.delete" => handle_delete_credential(params, id).await,
         _ => JsonRpcResponse::method_not_found(id, &format!("auth.{}", action)),
     }
 }
@@ -259,5 +267,161 @@ async fn handle_gog_passphrase(_params: &Value, id: Value) -> JsonRpcResponse {
             JsonRpcResponse::success(id, serde_json::json!({ "passphrase": passphrase }))
         }
         Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+    }
+}
+
+// ── Credential Type Registry Handlers ───────────────────────────────────────
+
+/// `auth.credential_types` — list all known credential schemas
+async fn handle_credential_types(_params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let types = broker.list_credential_types().await;
+    JsonRpcResponse::success(id, serde_json::json!({ "types": types }))
+}
+
+/// `auth.credential_types.custom.create` — register a custom credential type
+async fn handle_create_custom_type(params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let schema: crate::auth::credential_types::CredentialTypeSchema = match serde_json::from_value(params.clone()) {
+        Ok(s) => s,
+        Err(e) => {
+            return JsonRpcResponse::invalid_params(
+                id,
+                format!("Invalid credential type schema: {}. Required fields: provider_type, display_name, description, fields, supports_multiple", e),
+            )
+        }
+    };
+
+    match broker.register_custom_credential_type(schema).await {
+        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+    }
+}
+
+// ── Credential CRUD Handlers ────────────────────────────────────────────────
+
+/// `auth.credentials.store` — store a credential
+async fn handle_store_credential(params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let provider = match params.get("provider").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    };
+
+    let cred_type = match params.get("type").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return JsonRpcResponse::invalid_params(id, "Missing 'type' parameter"),
+    };
+
+    let label = params.get("label").and_then(|v| v.as_str());
+    let account = label.unwrap_or("default");
+
+    let fields = match params.get("fields").and_then(|v| v.as_object()) {
+        Some(obj) => {
+            let mut map = std::collections::HashMap::new();
+            for (k, v) in obj {
+                if let Some(s) = v.as_str() {
+                    map.insert(k.clone(), s.to_string());
+                }
+            }
+            map
+        }
+        None => return JsonRpcResponse::invalid_params(id, "Missing or invalid 'fields' parameter"),
+    };
+
+    match broker
+        .store_credential(provider, account, cred_type, fields, label)
+        .await
+    {
+        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+    }
+}
+
+/// `auth.credentials.get` — retrieve a credential (uses resolution chain)
+async fn handle_get_credential(params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let provider = match params.get("provider").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    };
+
+    let label = params.get("label").and_then(|v| v.as_str());
+
+    match broker.get_credential(provider, label).await {
+        Ok(fields) => JsonRpcResponse::success(id, serde_json::json!({ "fields": fields })),
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+    }
+}
+
+/// `auth.credentials.list` — list all credentials (metadata only, no secrets)
+async fn handle_list_credentials(_params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let credentials = broker.list_credentials().await;
+    JsonRpcResponse::success(
+        id,
+        serde_json::json!({
+            "credentials": credentials,
+            "count": credentials.len(),
+        }),
+    )
+}
+
+/// `auth.credentials.delete` — delete a credential
+async fn handle_delete_credential(params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let provider = match params.get("provider").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    };
+
+    let label = params.get("label").and_then(|v| v.as_str());
+    let account = label.unwrap_or("default");
+
+    match broker.delete_credential(provider, account).await {
+        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
     }
 }

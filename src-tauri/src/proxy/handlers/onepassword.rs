@@ -80,10 +80,18 @@ impl OnePasswordApi {
             return Err(format!("HTTP {} error: {}", status, body));
         }
 
-        response
-            .json()
+        // Handle empty responses (e.g. heartbeat returns 200 with no body)
+        let text = response
+            .text()
             .await
-            .map_err(|e| format!("Failed to parse JSON response: {}", e))
+            .map_err(|e| format!("Failed to read response body: {}", e))?;
+        
+        if text.is_empty() {
+            return Ok(serde_json::json!({"status": "ok"}));
+        }
+        
+        serde_json::from_str(&text)
+            .map_err(|e| format!("Failed to parse JSON response: {} (body: {})", e, &text[..text.len().min(200)]))
     }
 
     async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
@@ -145,6 +153,15 @@ impl OnePasswordApi {
 
 /// Handle 1Password-related methods
 pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse {
+    // Config-related methods don't need auth
+    match action {
+        "config.defaultVault" => return handle_get_default_vault(id).await,
+        "config.setDefaultVault" | "vaults.setDefault" => {
+            return handle_set_default_vault(params, id).await
+        }
+        _ => {}
+    }
+
     let auth_broker = match get_broker().await {
         Ok(broker) => broker,
         Err(mut resp) => {
@@ -154,31 +171,61 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     // Retrieve 1Password token from auth broker
+    // Try multiple retrieval strategies:
+    // 1. New credential store (get_credential with "onepassword")
+    // 2. Legacy token store (get_token with various provider names)
     let account = params
         .get("account")
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let token_data = match auth_broker
-        .get_token("onepassword", account, None)
-        .await
-    {
-        Ok(data) => data,
-        Err((code, msg)) => {
-            error!("Failed to get 1Password token: {}", msg);
-            return JsonRpcResponse::error(id, code, msg, None);
-        }
-    };
-
-    let access_token = match token_data.get("access_token").and_then(|v| v.as_str()) {
-        Some(token) => token.to_string(),
-        None => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                "Invalid token response: missing access_token".to_string(),
-                None,
-            );
+    let access_token = {
+        // Strategy 1: Try new credential store
+        let cred_result = auth_broker
+            .get_credential("onepassword", Some(account))
+            .await;
+        
+        if let Ok(fields) = cred_result {
+            // New credential store — look for service_account_token field
+            if let Some(token) = fields.get("service_account_token") {
+                token.clone()
+            } else if let Some(token) = fields.get("access_token") {
+                token.clone()
+            } else {
+                // Has fields but no recognizable token field
+                return JsonRpcResponse::error(
+                    id,
+                    -32000,
+                    "1Password credential found but missing service_account_token field".to_string(),
+                    None,
+                );
+            }
+        } else {
+            // Strategy 2: Try legacy token store with various provider names
+            let legacy_providers = ["onepassword", "1Password", "1password"];
+            let mut found_token = None;
+            
+            for provider_name in &legacy_providers {
+                if let Ok(data) = auth_broker.get_token(provider_name, account, None).await {
+                    if let Some(token) = data.get("access_token").and_then(|v| v.as_str()) {
+                        found_token = Some(token.to_string());
+                        break;
+                    }
+                }
+            }
+            
+            match found_token {
+                Some(token) => token,
+                None => {
+                    error!("Failed to get 1Password token from any source");
+                    return JsonRpcResponse::error(
+                        id,
+                        -32013,
+                        "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
+                        None,
+                    );
+                }
+            }
         }
     };
 
@@ -232,14 +279,12 @@ async fn handle_list_vaults(id: Value, api: OnePasswordApi) -> JsonRpcResponse {
 async fn handle_list_items(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
     info!("Handling op.items.list");
 
-    let vault_id = match params.get("vault_id").or_else(|| params.get("vaultId")).and_then(|v| v.as_str()) {
-        Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: vault_id");
-        }
+    let vault_id = match get_vault_id_with_default(params).await {
+        Ok(v) => v,
+        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
     };
 
-    match api.list_items(vault_id).await {
+    match api.list_items(&vault_id).await {
         Ok(items) => {
             debug!("Retrieved items for vault {}", vault_id);
             JsonRpcResponse::success(id, items)
@@ -254,11 +299,9 @@ async fn handle_list_items(params: &Value, id: Value, api: OnePasswordApi) -> Js
 async fn handle_get_item(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
     info!("Handling op.items.get");
 
-    let vault_id = match params.get("vault_id").or_else(|| params.get("vaultId")).and_then(|v| v.as_str()) {
-        Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: vault_id");
-        }
+    let vault_id = match get_vault_id_with_default(params).await {
+        Ok(v) => v,
+        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
     };
 
     let item_id = match params.get("item_id").or_else(|| params.get("itemId")).and_then(|v| v.as_str()) {
@@ -268,7 +311,7 @@ async fn handle_get_item(params: &Value, id: Value, api: OnePasswordApi) -> Json
         }
     };
 
-    match api.get_item(vault_id, item_id).await {
+    match api.get_item(&vault_id, item_id).await {
         Ok(item) => JsonRpcResponse::success(id, item),
         Err(e) => {
             error!("Failed to get item: {}", e);
@@ -280,11 +323,9 @@ async fn handle_get_item(params: &Value, id: Value, api: OnePasswordApi) -> Json
 async fn handle_create_item(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
     info!("Handling op.items.create");
 
-    let vault_id = match params.get("vault_id").or_else(|| params.get("vaultId")).and_then(|v| v.as_str()) {
-        Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: vault_id");
-        }
+    let vault_id = match get_vault_id_with_default(params).await {
+        Ok(v) => v,
+        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
     };
 
     let item = match params.get("item") {
@@ -294,7 +335,7 @@ async fn handle_create_item(params: &Value, id: Value, api: OnePasswordApi) -> J
         }
     };
 
-    match api.create_item(vault_id, item).await {
+    match api.create_item(&vault_id, item).await {
         Ok(created) => {
             info!("Item created successfully");
             JsonRpcResponse::success(id, created)
@@ -303,5 +344,71 @@ async fn handle_create_item(params: &Value, id: Value, api: OnePasswordApi) -> J
             error!("Failed to create item: {}", e);
             JsonRpcResponse::error(id, -32000, e, None)
         }
+    }
+}
+
+async fn handle_get_default_vault(id: Value) -> JsonRpcResponse {
+    info!("Handling op.config.defaultVault");
+    
+    match crate::config::get_onepassword_config().await {
+        Ok(Some(config)) => JsonRpcResponse::success(
+            id,
+            serde_json::json!({
+                "default_vault_id": config.default_vault_id,
+            }),
+        ),
+        Ok(None) => JsonRpcResponse::success(
+            id,
+            serde_json::json!({
+                "default_vault_id": null,
+            }),
+        ),
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+    }
+}
+
+async fn handle_set_default_vault(params: &Value, id: Value) -> JsonRpcResponse {
+    info!("Handling op.vaults.setDefault");
+    
+    let vault_id = params
+        .get("vault_id")
+        .or_else(|| params.get("vaultId"))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    
+    match crate::config::save_onepassword_config(vault_id.clone()).await {
+        Ok(()) => {
+            info!("Set default vault to: {:?}", vault_id);
+            JsonRpcResponse::success(
+                id,
+                serde_json::json!({
+                    "default_vault_id": vault_id,
+                    "success": true,
+                }),
+            )
+        }
+        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+    }
+}
+
+/// Helper to get vault ID from params or fall back to default vault
+async fn get_vault_id_with_default(params: &Value) -> Result<String, String> {
+    // First check if vault_id is provided in params
+    if let Some(vault_id) = params
+        .get("vault_id")
+        .or_else(|| params.get("vaultId"))
+        .and_then(|v| v.as_str())
+    {
+        return Ok(vault_id.to_string());
+    }
+    
+    // Fall back to default vault
+    match crate::config::get_onepassword_config().await {
+        Ok(Some(config)) => match config.default_vault_id {
+            Some(vault_id) => Ok(vault_id),
+            None => Err("No vault_id provided and no default vault configured".to_string()),
+        },
+        Ok(None) => Err("No vault_id provided and no default vault configured".to_string()),
+        Err(e) => Err(format!("Failed to get default vault config: {}", e)),
     }
 }

@@ -36,6 +36,10 @@ fn get_google_oauth_config_path() -> PathBuf {
     get_tairseach_auth_path().join("google_oauth.json")
 }
 
+fn get_onepassword_config_path() -> PathBuf {
+    get_tairseach_auth_path().join("onepassword.json")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GoogleOAuthConfig {
     pub client_id: String,
@@ -49,6 +53,13 @@ pub struct GoogleOAuthStatus {
     pub configured: bool,
     pub has_token: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnePasswordConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_vault_id: Option<String>,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -429,5 +440,39 @@ pub async fn set_exec_approvals(approvals: Value) -> Result<(), String> {
     std::fs::write(&approvals_path, content)
         .map_err(|e| format!("Failed to write exec approvals: {}", e))?;
     
+    Ok(())
+}
+
+/// Get 1Password configuration
+pub async fn get_onepassword_config() -> Result<Option<OnePasswordConfig>, String> {
+    let path = get_onepassword_config_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read 1Password config: {}", e))?;
+    let config: OnePasswordConfig = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse 1Password config: {}", e))?;
+
+    Ok(Some(config))
+}
+
+/// Save 1Password configuration
+pub async fn save_onepassword_config(default_vault_id: Option<String>) -> Result<(), String> {
+    let dir = get_tairseach_auth_path();
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create auth directory: {}", e))?;
+
+    let config = OnePasswordConfig {
+        default_vault_id,
+        updated_at: Utc::now().to_rfc3339(),
+    };
+
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize 1Password config: {}", e))?;
+    std::fs::write(get_onepassword_config_path(), content)
+        .map_err(|e| format!("Failed to write 1Password config: {}", e))?;
+
     Ok(())
 }

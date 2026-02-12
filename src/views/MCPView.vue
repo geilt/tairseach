@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { useWorkerPoller, type NamespaceStatus } from '@/composables/useWorkerPoller'
 
 interface Tool {
   name: string
@@ -19,22 +20,22 @@ interface Manifest {
   tools: Tool[]
 }
 
-interface ProxyStatus {
-  running: boolean
-  socket_path?: string
-}
-
 const loading = ref(true)
 const error = ref<string | null>(null)
 const manifests = ref<Manifest[]>([])
-const proxyStatus = ref<ProxyStatus>({ running: false })
 const selectedTool = ref<{ manifest: string; tool: Tool } | null>(null)
 const testParams = ref('{}')
 const testResult = ref<any>(null)
 const testError = ref<string | null>(null)
 const testLoading = ref(false)
 const expandedTools = ref<Set<string>>(new Set())
-const socketAlive = ref(false)
+
+// Use worker-based status poller
+const { proxyStatus, namespaceStatuses, socketAlive } = useWorkerPoller()
+
+// OpenClaw integration state
+const installingToOpenClaw = ref(false)
+const openclawInstallResult = ref<{ success: boolean; message: string } | null>(null)
 
 const allTools = computed(() => {
   return manifests.value.flatMap(manifest => 
@@ -69,32 +70,29 @@ const skillConfig = computed(() => {
 })
 
 async function loadManifests() {
+  loading.value = true
+  error.value = null
+  
   try {
-    loading.value = true
-    error.value = null
-    manifests.value = await invoke<Manifest[]>('get_all_manifests')
+    const result = await invoke<Manifest[]>('get_all_manifests')
+    
+    requestAnimationFrame(() => {
+      manifests.value = result
+      loading.value = false
+    })
   } catch (e) {
-    error.value = String(e)
-  } finally {
-    loading.value = false
+    requestAnimationFrame(() => {
+      error.value = String(e)
+      loading.value = false
+    })
   }
 }
 
-async function checkProxyStatus() {
-  try {
-    proxyStatus.value = await invoke<ProxyStatus>('get_proxy_status')
-  } catch (e) {
-    console.error('Failed to get proxy status:', e)
-  }
-}
+// Status polling is now handled by the useWorkerPoller composable (Web Worker + rAF)
 
-async function checkSocketStatus() {
-  try {
-    const result = await invoke<any>('check_socket_alive')
-    socketAlive.value = result.alive
-  } catch (e) {
-    socketAlive.value = false
-  }
+function getNamespaceStatus(manifestId: string): NamespaceStatus | undefined {
+  const namespace = manifestId.split('.')[0] || 'default'
+  return namespaceStatuses.value.find(s => s.namespace === namespace)
 }
 
 function toggleTool(toolKey: string) {
@@ -115,11 +113,11 @@ function selectToolForTest(manifestId: string, tool: Tool) {
 async function testTool() {
   if (!selectedTool.value) return
   
+  testLoading.value = true
+  testError.value = null
+  testResult.value = null
+  
   try {
-    testLoading.value = true
-    testError.value = null
-    testResult.value = null
-    
     const params = JSON.parse(testParams.value)
     
     const result = await invoke<any>('test_mcp_tool', {
@@ -127,11 +125,39 @@ async function testTool() {
       params
     })
     
-    testResult.value = result
+    requestAnimationFrame(() => {
+      testResult.value = result
+      testLoading.value = false
+    })
   } catch (e) {
-    testError.value = String(e)
-  } finally {
-    testLoading.value = false
+    requestAnimationFrame(() => {
+      testError.value = String(e)
+      testLoading.value = false
+    })
+  }
+}
+
+async function installToOpenClaw() {
+  installingToOpenClaw.value = true
+  openclawInstallResult.value = null
+  
+  try {
+    const result = await invoke<{ success: boolean; message: string; config_path?: string }>(
+      'install_tairseach_to_openclaw'
+    )
+    
+    requestAnimationFrame(() => {
+      openclawInstallResult.value = result
+      installingToOpenClaw.value = false
+    })
+  } catch (e) {
+    requestAnimationFrame(() => {
+      openclawInstallResult.value = {
+        success: false,
+        message: `Installation failed: ${e}`
+      }
+      installingToOpenClaw.value = false
+    })
   }
 }
 
@@ -143,14 +169,6 @@ function copySkillConfig() {
 
 onMounted(() => {
   loadManifests()
-  checkProxyStatus()
-  checkSocketStatus()
-  
-  // Poll status every 5 seconds
-  setInterval(() => {
-    checkProxyStatus()
-    checkSocketStatus()
-  }, 5000)
 })
 </script>
 
@@ -255,15 +273,30 @@ onMounted(() => {
                 :key="manifest.id"
                 class="border border-naonur-fog/30 rounded-lg overflow-hidden"
               >
-                <!-- Manifest header -->
+                <!-- Manifest header with connection status -->
                 <div class="px-4 py-3 bg-naonur-fog/10">
                   <div class="flex items-start justify-between">
-                    <div>
-                      <h4 class="font-display text-naonur-bone">{{ manifest.name }}</h4>
-                      <p class="text-xs text-naonur-smoke mt-1">{{ manifest.description }}</p>
-                      <p class="text-xs text-naonur-fog font-mono mt-1">
-                        {{ manifest.id }} • v{{ manifest.version }}
-                      </p>
+                    <div class="flex items-start gap-3 flex-1">
+                      <!-- Connection Status Indicator -->
+                      <div class="flex-shrink-0 pt-1">
+                        <div 
+                          :class="[
+                            'w-2 h-2 rounded-full',
+                            getNamespaceStatus(manifest.id)?.connected 
+                              ? 'bg-naonur-moss shadow-[0_0_8px_rgba(74,124,89,0.6)]' 
+                              : 'bg-naonur-blood shadow-[0_0_8px_rgba(139,0,0,0.4)]'
+                          ]"
+                          :title="getNamespaceStatus(manifest.id)?.connected ? 'Connected' : 'Disconnected'"
+                        />
+                      </div>
+                      
+                      <div class="flex-1">
+                        <h4 class="font-display text-naonur-bone">{{ manifest.name }}</h4>
+                        <p class="text-xs text-naonur-smoke mt-1">{{ manifest.description }}</p>
+                        <p class="text-xs text-naonur-fog font-mono mt-1">
+                          {{ manifest.id }} • v{{ manifest.version }}
+                        </p>
+                      </div>
                     </div>
                     <span class="px-2 py-1 text-xs rounded-full bg-naonur-gold/20 text-naonur-gold">
                       {{ manifest.tools.length }} {{ manifest.tools.length === 1 ? 'tool' : 'tools' }}
@@ -384,22 +417,73 @@ onMounted(() => {
         <h2 class="font-display text-lg text-naonur-gold mb-4">🦅 OpenClaw Integration</h2>
         
         <p class="text-sm text-naonur-ash mb-4">
-          To use Tairseach tools in OpenClaw, create a skill file at 
-          <code class="text-naonur-gold">~/.openclaw/skills/tairseach/SKILL.md</code>
+          Install Tairseach MCP server to your OpenClaw configuration to use these tools in agent sessions.
         </p>
 
-        <div class="flex items-center gap-3 mb-4">
-          <button class="btn btn-primary" @click="copySkillConfig">
-            📋 Copy Skill Config
+        <!-- Install Button -->
+        <div class="mb-4">
+          <button 
+            class="btn btn-primary"
+            :disabled="installingToOpenClaw"
+            @click="installToOpenClaw"
+          >
+            <span v-if="installingToOpenClaw" class="flex items-center gap-2">
+              <span class="animate-spin">⏳</span>
+              Installing...
+            </span>
+            <span v-else>📦 Install to OpenClaw</span>
           </button>
-          <span class="text-xs text-naonur-smoke">
-            (Paste into OpenClaw skill configuration)
-          </span>
         </div>
 
-        <div>
-          <div class="text-sm text-naonur-smoke mb-2">Preview:</div>
-          <pre class="text-xs bg-naonur-void border border-naonur-fog/30 p-3 rounded-lg overflow-auto">{{ skillConfig }}</pre>
+        <!-- Installation Result -->
+        <Transition
+          enter-active-class="transition-all duration-200"
+          enter-from-class="opacity-0 max-h-0"
+          enter-to-class="opacity-100 max-h-32"
+          leave-active-class="transition-all duration-200"
+          leave-from-class="opacity-100 max-h-32"
+          leave-to-class="opacity-0 max-h-0"
+        >
+          <div v-if="openclawInstallResult" class="overflow-hidden">
+            <div 
+              :class="[
+                'p-4 rounded-lg border mb-4',
+                openclawInstallResult.success 
+                  ? 'bg-naonur-moss/10 border-naonur-moss/30 text-naonur-moss' 
+                  : 'bg-naonur-blood/10 border-naonur-blood/30 text-naonur-blood'
+              ]"
+            >
+              <p class="text-sm font-medium mb-1">
+                {{ openclawInstallResult.success ? '✓ Installation Successful' : '✗ Installation Failed' }}
+              </p>
+              <p class="text-xs opacity-90">{{ openclawInstallResult.message }}</p>
+            </div>
+
+            <!-- Restart OpenClaw Button (only on success) -->
+            <div v-if="openclawInstallResult.success" class="mb-4">
+              <p class="text-xs text-naonur-smoke mb-2">
+                Restart OpenClaw for the changes to take effect:
+              </p>
+              <button class="btn btn-secondary text-sm">
+                🔄 Restart OpenClaw
+              </button>
+            </div>
+          </div>
+        </Transition>
+
+        <!-- Skill Config Preview -->
+        <div class="pt-4 border-t border-naonur-fog/20">
+          <div class="flex items-center gap-3 mb-3">
+            <h3 class="text-sm font-display text-naonur-bone">Skill Configuration</h3>
+            <button class="btn btn-ghost text-xs" @click="copySkillConfig">
+              📋 Copy
+            </button>
+          </div>
+          
+          <div>
+            <div class="text-sm text-naonur-smoke mb-2">Preview:</div>
+            <pre class="text-xs bg-naonur-void border border-naonur-fog/30 p-3 rounded-lg overflow-auto">{{ skillConfig }}</pre>
+          </div>
         </div>
       </div>
     </template>
@@ -417,5 +501,9 @@ onMounted(() => {
 
 .btn-secondary {
   @apply border border-naonur-fog/50 text-naonur-bone hover:bg-naonur-fog/20 px-4 py-2 rounded-lg transition-colors;
+}
+
+.btn {
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
 }
 </style>

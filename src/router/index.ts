@@ -8,6 +8,7 @@ import ActivityView from '../views/ActivityView.vue'
 import ProfilesView from '../views/ProfilesView.vue'
 import AuthView from '../views/AuthView.vue'
 import MCPView from '../views/MCPView.vue'
+import IntegrationsView from '../views/IntegrationsView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -65,6 +66,12 @@ const router = createRouter({
       name: 'mcp',
       component: MCPView,
       meta: { title: 'MCP Tools' },
+    },
+    {
+      path: '/integrations',
+      name: 'integrations',
+      component: IntegrationsView,
+      meta: { title: 'Integrations' },
     },
   ],
 })

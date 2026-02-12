@@ -7,6 +7,7 @@
 //!
 //! See ADR-001 for the full design rationale.
 
+pub mod credential_types;
 pub mod crypto;
 pub mod provider;
 pub mod store;
@@ -178,13 +179,6 @@ impl AuthBroker {
         account: &str,
         required_scopes: Option<&[String]>,
     ) -> Result<serde_json::Value, (i32, String)> {
-        if provider != "google" {
-            return Err((
-                error_codes::PROVIDER_NOT_SUPPORTED,
-                format!("Unsupported provider: {}", provider),
-            ));
-        }
-
         let store = self.store.read().await;
         let mut record = store
             .get_token(provider, account)
@@ -356,6 +350,69 @@ impl AuthBroker {
 
         info!("Generated and stored new gog passphrase");
         Ok(passphrase)
+    }
+
+    // ── Credential Type Registry ────────────────────────────────────────────
+
+    /// List all registered credential types
+    pub async fn list_credential_types(&self) -> Vec<credential_types::CredentialTypeSchema> {
+        let store = self.store.read().await;
+        store
+            .credential_types()
+            .list()
+            .iter()
+            .map(|&schema| schema.clone())
+            .collect()
+    }
+
+    /// Register a custom credential type
+    pub async fn register_custom_credential_type(
+        &self,
+        schema: credential_types::CredentialTypeSchema,
+    ) -> Result<(), String> {
+        let mut store = self.store.write().await;
+        store.credential_types_mut().register_custom(schema)
+    }
+
+    // ── Generic Credential Methods ──────────────────────────────────────────
+
+    /// Store a generic credential
+    pub async fn store_credential(
+        &self,
+        provider: &str,
+        account: &str,
+        cred_type: &str,
+        fields: std::collections::HashMap<String, String>,
+        label: Option<&str>,
+    ) -> Result<(), String> {
+        let mut store = self.store.write().await;
+        store.store_credential(provider, account, cred_type, fields, label)
+    }
+
+    /// Get a credential (local store only for now)
+    pub async fn get_credential(
+        &self,
+        provider: &str,
+        label: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, String>, String> {
+        let store = self.store.read().await;
+        let account = label.unwrap_or("default");
+        store
+            .get_credential(provider, account)
+            .transpose()
+            .ok_or_else(|| format!("No credential found for {}:{}", provider, account))?
+    }
+
+    /// List all credentials (metadata only)
+    pub async fn list_credentials(&self) -> Vec<store::CredentialMetadata> {
+        let store = self.store.read().await;
+        store.list_credentials()
+    }
+
+    /// Delete a credential
+    pub async fn delete_credential(&self, provider: &str, account: &str) -> Result<(), String> {
+        let mut store = self.store.write().await;
+        store.delete_credential(provider, account)
     }
 
     /// Start the background token refresh daemon.
@@ -830,6 +887,135 @@ async fn fetch_google_email(access_token: &str) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .map(String::from)
         .ok_or_else(|| "Email not found in user info".to_string())
+}
+
+// ── Credential Commands ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn auth_credential_types() -> Result<Vec<credential_types::CredentialTypeSchema>, String> {
+    let broker = get_or_init_broker().await?;
+    Ok(broker.list_credential_types().await)
+}
+
+#[tauri::command]
+pub async fn auth_credentials_store(
+    cred_type: String,
+    label: String,
+    fields: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let broker = get_or_init_broker().await?;
+    broker
+        .store_credential(&cred_type, &label, &cred_type, fields, Some(&label))
+        .await
+}
+
+#[tauri::command]
+pub async fn auth_credentials_list(
+    cred_type: Option<String>,
+) -> Result<Vec<store::CredentialMetadata>, String> {
+    let broker = get_or_init_broker().await?;
+    let mut credentials = broker.list_credentials().await;
+    
+    // Filter by cred_type if provided
+    if let Some(filter_type) = cred_type {
+        credentials.retain(|c| c.cred_type == filter_type);
+    }
+    
+    Ok(credentials)
+}
+
+#[tauri::command]
+pub async fn auth_credentials_get(
+    cred_type: String,
+    label: String,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let broker = get_or_init_broker().await?;
+    broker.get_credential(&cred_type, Some(&label)).await
+}
+
+#[tauri::command]
+pub async fn auth_credentials_delete(cred_type: String, label: String) -> Result<(), String> {
+    let broker = get_or_init_broker().await?;
+    broker.delete_credential(&cred_type, &label).await
+}
+
+#[tauri::command]
+pub async fn auth_credential_types_custom_create(
+    provider_type: String,
+    display_name: String,
+    fields: Vec<credential_types::CredentialField>,
+) -> Result<(), String> {
+    let broker = get_or_init_broker().await?;
+    
+    let schema = credential_types::CredentialTypeSchema {
+        provider_type,
+        display_name,
+        description: String::new(),
+        fields,
+        supports_multiple: false,
+        built_in: false,
+    };
+    
+    broker.register_custom_credential_type(schema).await
+}
+
+// ── 1Password Commands ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn op_vaults_list() -> Result<serde_json::Value, String> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    
+    let socket_path = dirs::home_dir()
+        .ok_or("Could not determine home directory")?
+        .join(".tairseach/tairseach.sock");
+    
+    if !socket_path.exists() {
+        return Err("Tairseach socket not found".to_string());
+    }
+    
+    let mut stream = UnixStream::connect(&socket_path)
+        .map_err(|e| format!("Failed to connect to Tairseach socket: {}", e))?;
+    
+    // Send JSON-RPC request
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "op.vaults.list",
+        "params": {}
+    });
+    
+    let request_str = serde_json::to_string(&request).unwrap() + "\n";
+    stream
+        .write_all(request_str.as_bytes())
+        .map_err(|e| format!("Failed to write to socket: {}", e))?;
+    
+    // Read response
+    let mut buffer = vec![0u8; 65536];
+    let n = stream
+        .read(&mut buffer)
+        .map_err(|e| format!("Failed to read from socket: {}", e))?;
+    
+    if n == 0 {
+        return Err("No response from Tairseach socket".to_string());
+    }
+    
+    let response_str = String::from_utf8_lossy(&buffer[..n]);
+    let response: serde_json::Value = serde_json::from_str(&response_str)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    
+    // Check for JSON-RPC error
+    if let Some(error) = response.get("error") {
+        return Err(format!("RPC error: {}", error));
+    }
+    
+    // Return the result
+    Ok(response.get("result").cloned().unwrap_or(response))
+}
+
+#[tauri::command]
+pub async fn op_config_set_default_vault(vault_id: String) -> Result<(), String> {
+    crate::config::save_onepassword_config(Some(vault_id)).await
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

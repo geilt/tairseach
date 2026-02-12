@@ -176,6 +176,8 @@ pub fn run() {
             monitor::get_all_manifests,
             monitor::check_socket_alive,
             monitor::test_mcp_tool,
+            monitor::get_namespace_statuses,
+            monitor::install_tairseach_to_openclaw,
             // Profiles
             profiles::get_profiles,
             profiles::save_profile,
@@ -190,6 +192,15 @@ pub fn run() {
             auth::auth_revoke_token,
             auth::auth_store_token,
             auth::auth_start_google_oauth,
+            // Credentials
+            auth::auth_credential_types,
+            auth::auth_credentials_store,
+            auth::auth_credentials_list,
+            auth::auth_credentials_get,
+            auth::auth_credentials_delete,
+            auth::auth_credential_types_custom_create,
+            auth::op_vaults_list,
+            auth::op_config_set_default_vault,
             // Proxy
             get_proxy_status,
             start_proxy_server,

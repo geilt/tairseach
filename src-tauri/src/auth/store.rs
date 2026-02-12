@@ -4,6 +4,7 @@
 //! Schema metadata (no secrets) at `~/.tairseach/credentials.schema.json`.
 //! Master key derived from machine identity (no Keychain prompts).
 
+use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,8 +13,31 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 use zeroize::Zeroizing;
 
+use super::credential_types::CredentialTypeRegistry;
 use super::crypto;
 use super::{AccountInfo, TokenRecord};
+
+// ── Public Types ────────────────────────────────────────────────────────────
+
+/// Credential metadata (no secrets)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialMetadata {
+    pub provider: String,
+    pub account: String,
+    pub cred_type: String,
+    pub added: String,
+    pub last_refreshed: Option<String>,
+}
+
+/// Trait for resolving credentials from 1Password
+#[async_trait]
+pub trait OnePasswordResolver: Send + Sync {
+    async fn resolve_from_1password(
+        &self,
+        provider: &str,
+        account: &str,
+    ) -> Result<HashMap<String, String>, String>;
+}
 
 /// Credential file format version
 const SCHEMA_VERSION: u32 = 2;
@@ -89,6 +113,10 @@ pub struct TokenStore {
     credentials: CredentialsFile,
     /// Schema file
     schema: SchemaFile,
+    /// Credential type registry
+    credential_types: CredentialTypeRegistry,
+    /// 1Password credential cache (provider:account -> fields)
+    onepassword_cache: HashMap<String, HashMap<String, String>>,
 }
 
 impl TokenStore {
@@ -139,6 +167,8 @@ impl TokenStore {
             master_key: Zeroizing::new(master_key),
             credentials,
             schema,
+            credential_types: CredentialTypeRegistry::new(),
+            onepassword_cache: HashMap::new(),
         };
 
         // Migrate from v1 if old auth/ directory exists
@@ -298,6 +328,193 @@ impl TokenStore {
         self.save_token(&record)?;
         info!("Saved gog passphrase to encrypted credential store");
         Ok(())
+    }
+
+    // ── Generic Credential Methods ─────────────────────────────────────────
+
+    /// Store a generic credential (non-OAuth)
+    pub fn store_credential(
+        &mut self,
+        provider: &str,
+        account: &str,
+        cred_type: &str,
+        fields: HashMap<String, String>,
+        label: Option<&str>,
+    ) -> Result<(), String> {
+        // Validate against schema if known type
+        if let Some(schema) = self.credential_types.get(cred_type) {
+            schema.validate(&fields)?;
+        }
+
+        let key = credential_key(provider, account);
+
+        // Serialize fields to JSON
+        let json = serde_json::to_vec(&fields)
+            .map_err(|e| format!("Failed to serialize credential: {}", e))?;
+
+        // Encrypt and store
+        let entry = encrypt_to_entry(&self.master_key, &json)?;
+        self.credentials.credentials.insert(key.clone(), entry);
+
+        // Update schema
+        let now = chrono::Utc::now().to_rfc3339();
+        let schema_entry = SchemaEntry {
+            provider: provider.to_string(),
+            account: label.unwrap_or(account).to_string(),
+            cred_type: cred_type.to_string(),
+            scopes: vec![], // Not applicable for generic credentials
+            added: self
+                .schema
+                .entries
+                .get(&key)
+                .map(|e| e.added.clone())
+                .unwrap_or_else(|| now.clone()),
+            last_refreshed: Some(now),
+        };
+
+        self.schema.entries.insert(key, schema_entry);
+
+        // Flush both files
+        self.flush_credentials()?;
+        self.flush_schema()?;
+
+        info!("Stored credential {}:{} (type: {})", provider, account, cred_type);
+        Ok(())
+    }
+
+    /// Retrieve a generic credential
+    pub fn get_credential(
+        &self,
+        provider: &str,
+        account: &str,
+    ) -> Result<Option<HashMap<String, String>>, String> {
+        let key = credential_key(provider, account);
+
+        let entry = match self.credentials.credentials.get(&key) {
+            Some(e) => e,
+            None => return Ok(None),
+        };
+
+        if !entry.encrypted {
+            return Err("Credential is not encrypted".to_string());
+        }
+
+        // Decode and decrypt (same as get_token)
+        let iv = BASE64.decode(entry.iv.as_ref().ok_or("Missing IV")?)
+            .map_err(|e| format!("Invalid IV base64: {}", e))?;
+        let tag = BASE64.decode(entry.tag.as_ref().ok_or("Missing tag")?)
+            .map_err(|e| format!("Invalid tag base64: {}", e))?;
+        let ciphertext = BASE64.decode(&entry.data)
+            .map_err(|e| format!("Invalid ciphertext base64: {}", e))?;
+
+        let mut encrypted_blob = Vec::with_capacity(iv.len() + ciphertext.len() + tag.len());
+        encrypted_blob.extend_from_slice(&iv);
+        encrypted_blob.extend_from_slice(&ciphertext);
+        encrypted_blob.extend_from_slice(&tag);
+
+        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted_blob)?);
+
+        // Try parsing as TokenRecord first (backward compat), then as generic credential
+        if let Ok(token) = serde_json::from_slice::<TokenRecord>(&*decrypted) {
+            // Convert TokenRecord to field map for consistency
+            let mut fields = HashMap::new();
+            fields.insert("access_token".to_string(), token.access_token.clone());
+            if !token.refresh_token.is_empty() {
+                fields.insert("refresh_token".to_string(), token.refresh_token.clone());
+            }
+            return Ok(Some(fields));
+        }
+
+        // Parse as generic credential
+        let fields: HashMap<String, String> = serde_json::from_slice(&*decrypted)
+            .map_err(|e| format!("Failed to parse credential JSON: {}", e))?;
+
+        Ok(Some(fields))
+    }
+
+    /// List all credentials (metadata only)
+    pub fn list_credentials(&self) -> Vec<CredentialMetadata> {
+        self.schema
+            .entries
+            .iter()
+            .map(|(_key, entry)| CredentialMetadata {
+                provider: entry.provider.clone(),
+                account: entry.account.clone(),
+                cred_type: entry.cred_type.clone(),
+                added: entry.added.clone(),
+                last_refreshed: entry.last_refreshed.clone(),
+            })
+            .collect()
+    }
+
+    /// Delete a credential
+    pub fn delete_credential(&mut self, provider: &str, account: &str) -> Result<(), String> {
+        // Alias to delete_token for now
+        self.delete_token(provider, account)
+    }
+
+    /// Resolve credential with fallback chain:
+    /// 1. Local encrypted store
+    /// 2. 1Password vault (if configured)
+    /// 3. Not found error
+    pub async fn resolve_credential(
+        &mut self,
+        provider: &str,
+        account: Option<&str>,
+        onepassword_client: Option<&dyn OnePasswordResolver>,
+    ) -> Result<HashMap<String, String>, String> {
+        let account_key = account.unwrap_or("default");
+
+        // 1. Try local store first
+        if let Some(fields) = self.get_credential(provider, account_key)? {
+            info!("Resolved credential {}:{} from local store", provider, account_key);
+            return Ok(fields);
+        }
+
+        // 2. Try 1Password fallback if client provided
+        if let Some(op_client) = onepassword_client {
+            let cache_key = format!("{}:{}", provider, account_key);
+            
+            // Check cache first
+            if let Some(cached) = self.onepassword_cache.get(&cache_key) {
+                info!("Resolved credential {}:{} from 1Password cache", provider, account_key);
+                return Ok(cached.clone());
+            }
+
+            // Fetch from 1Password
+            match op_client.resolve_from_1password(provider, account_key).await {
+                Ok(fields) => {
+                    info!("Resolved credential {}:{} from 1Password", provider, account_key);
+                    
+                    // Cache it locally
+                    self.store_credential(provider, account_key, provider, fields.clone(), None)?;
+                    self.onepassword_cache.insert(cache_key, fields.clone());
+                    
+                    return Ok(fields);
+                }
+                Err(e) => {
+                    warn!("1Password resolution failed for {}:{}: {}", provider, account_key, e);
+                }
+            }
+        }
+
+        // 3. Not found
+        Err(format!(
+            "No credential found for {}:{} (checked local store{})",
+            provider,
+            account_key,
+            if onepassword_client.is_some() { " and 1Password" } else { "" }
+        ))
+    }
+
+    /// Access the credential type registry
+    pub fn credential_types(&self) -> &CredentialTypeRegistry {
+        &self.credential_types
+    }
+
+    /// Access the credential type registry (mutable)
+    pub fn credential_types_mut(&mut self) -> &mut CredentialTypeRegistry {
+        &mut self.credential_types
     }
 
     // ── Internal ────────────────────────────────────────────────────────────

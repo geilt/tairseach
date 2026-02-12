@@ -299,3 +299,168 @@ pub async fn test_mcp_tool(
     // Return the result
     Ok(response.get("result").cloned().unwrap_or(response))
 }
+
+/// Check namespace connection statuses by pinging socket with a tool from each manifest
+#[tauri::command]
+pub async fn get_namespace_statuses() -> Result<Vec<serde_json::Value>, String> {
+    let manifests = get_all_manifests().await?;
+    let socket_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/"))
+        .join(".tairseach/tairseach.sock");
+    
+    let mut statuses = Vec::new();
+    
+    for manifest in manifests {
+        // Use manifest.id as the namespace
+        let namespace = manifest.id.clone();
+        
+        // Pick the first tool to test connectivity
+        let connected = if let Some(_tool) = manifest.tools.first() {
+            // Try to ping with tools/list to test connectivity
+            match test_tool_connectivity(&socket_path).await {
+                Ok(_) => true,
+                Err(_) => false,
+            }
+        } else {
+            false // No tools means can't test connectivity
+        };
+        
+        statuses.push(serde_json::json!({
+            "namespace": namespace,
+            "connected": connected
+        }));
+    }
+    
+    Ok(statuses)
+}
+
+/// Helper function to test tool connectivity
+async fn test_tool_connectivity(socket_path: &PathBuf) -> Result<(), String> {
+    if !socket_path.exists() {
+        return Err("Socket does not exist".to_string());
+    }
+    
+    let mut stream = UnixStream::connect(socket_path)
+        .map_err(|e| format!("Failed to connect: {}", e))?;
+    
+    // Send a minimal JSON-RPC request
+    let request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    });
+    
+    let request_str = serde_json::to_string(&request).unwrap() + "\n";
+    stream
+        .write_all(request_str.as_bytes())
+        .map_err(|e| format!("Write failed: {}", e))?;
+    
+    // Read response (with timeout implied by blocking read)
+    let mut buffer = vec![0u8; 4096];
+    let n = stream.read(&mut buffer).map_err(|e| format!("Read failed: {}", e))?;
+    
+    if n == 0 {
+        return Err("No response".to_string());
+    }
+    
+    Ok(())
+}
+
+/// Install Tairseach MCP server config into OpenClaw
+#[tauri::command]
+pub async fn install_tairseach_to_openclaw(
+    config_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use std::io::Write;
+    
+    // Determine config path
+    let path = if let Some(p) = config_path {
+        PathBuf::from(p)
+    } else {
+        dirs::home_dir()
+            .ok_or("Could not determine home directory")?
+            .join(".openclaw/openclaw.json")
+    };
+    
+    if !path.exists() {
+        return Err(format!("OpenClaw config not found at {:?}", path));
+    }
+    
+    // Read existing config
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read OpenClaw config: {}", e))?;
+    
+    let mut config: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse OpenClaw config: {}", e))?;
+    
+    // Find the tairseach-mcp binary
+    let binary_path = find_tairseach_mcp_binary()?;
+    
+    // Create/update mcpServers.tairseach entry
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    
+    let config_obj = config.as_object_mut().unwrap();
+    
+    if !config_obj.contains_key("mcpServers") {
+        config_obj.insert("mcpServers".to_string(), serde_json::json!({}));
+    }
+    
+    let mcp_servers = config_obj
+        .get_mut("mcpServers")
+        .and_then(|v| v.as_object_mut())
+        .ok_or("mcpServers is not an object")?;
+    
+    mcp_servers.insert(
+        "tairseach".to_string(),
+        serde_json::json!({
+            "transport": "stdio",
+            "command": binary_path,
+            "args": []
+        }),
+    );
+    
+    // Write back atomically (write to temp, then rename)
+    let temp_path = path.with_extension("json.tmp");
+    let new_content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    
+    {
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        file.write_all(new_content.as_bytes())
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+        file.flush()
+            .map_err(|e| format!("Failed to flush temp file: {}", e))?;
+    }
+    
+    std::fs::rename(&temp_path, &path)
+        .map_err(|e| format!("Failed to rename temp file: {}", e))?;
+    
+    Ok(serde_json::json!({
+        "success": true,
+        "config_path": path.display().to_string(),
+        "binary_path": binary_path
+    }))
+}
+
+/// Find the tairseach-mcp binary (sidecar or fallback)
+fn find_tairseach_mcp_binary() -> Result<String, String> {
+    // Try sidecar path first (resolved by Tauri at runtime)
+    // Note: In production, Tauri resolves sidecar paths automatically
+    // For now, we'll check the development path
+    
+    let dev_path = dirs::home_dir()
+        .ok_or("Could not determine home directory")?
+        .join("environment/tairseach/src-tauri/binaries/tairseach-mcp-aarch64-apple-darwin");
+    
+    if dev_path.exists() {
+        return Ok(dev_path.display().to_string());
+    }
+    
+    // TODO: In production, use tauri::api::process::Command::sidecar_path() or similar
+    // For now, return the expected path
+    Ok(dev_path.display().to_string())
+}
