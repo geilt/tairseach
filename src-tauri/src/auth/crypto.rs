@@ -12,6 +12,7 @@ use hkdf::Hkdf;
 use rand::RngCore;
 use sha2::Sha256;
 use std::process::Command;
+use std::sync::OnceLock;
 use tracing::info;
 
 /// AES-256-GCM nonce size (96 bits)
@@ -105,9 +106,25 @@ pub fn derive_master_key() -> Result<[u8; KEY_SIZE], String> {
     Err("Master key derivation requires macOS hardware UUID".to_string())
 }
 
-/// Retrieve the hardware UUID from macOS IOKit.
+/// Cached hardware UUID (fetched once per process lifetime).
+#[cfg(target_os = "macos")]
+static HARDWARE_UUID: OnceLock<String> = OnceLock::new();
+
+/// Retrieve the hardware UUID from macOS IOKit (cached).
 #[cfg(target_os = "macos")]
 fn get_hardware_uuid() -> Result<String, String> {
+    if let Some(uuid) = HARDWARE_UUID.get() {
+        return Ok(uuid.clone());
+    }
+    
+    let uuid = fetch_hardware_uuid()?;
+    let _ = HARDWARE_UUID.set(uuid.clone());
+    Ok(uuid)
+}
+
+/// Fetch the hardware UUID from ioreg (internal, uncached).
+#[cfg(target_os = "macos")]
+fn fetch_hardware_uuid() -> Result<String, String> {
     let output = Command::new("ioreg")
         .args(["-d2", "-c", "IOPlatformExpertDevice"])
         .output()

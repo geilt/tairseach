@@ -1,9 +1,9 @@
 //! Auth Broker
 //!
 //! Manages OAuth tokens for CLIs and agents via the Tairseach socket proxy.
-//! Tokens are encrypted at rest with AES-256-GCM. The master encryption key
-//! is derived from machine identity (hardware UUID + username) via HKDF-SHA256
-//! — no Keychain prompts required.
+//! Tokens are encrypted at rest with AES-256-GCM. The master encryption key is
+//! derived from machine identity (hardware UUID + username) via HKDF-SHA256 —
+//! no Keychain prompts required.
 //!
 //! See ADR-001 for the full design rationale.
 

@@ -4,6 +4,7 @@
 //! Uses standard Rust `std::fs` — the value is that Tairseach has FDA,
 //! so it can access paths that agents cannot (e.g., ~/Library/Mail, etc.).
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -59,9 +60,9 @@ fn validate_write_path(path: &Path) -> Result<(), String> {
 
     // Deny writes to sensitive paths under home directory
     if let Some(home) = dirs::home_dir() {
-        let auth_dir = home.join(".tairseach").join("auth");
-        if canonical.starts_with(&auth_dir) {
-            return Err("Writes to Tairseach auth store are not allowed".to_string());
+        let tairseach_dir = home.join(".tairseach");
+        if canonical.starts_with(&tairseach_dir) {
+            return Err("Writes to Tairseach configuration directory are not allowed".to_string());
         }
 
         let denied_exact = [
@@ -158,6 +159,21 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
         );
     }
 
+    // SECURITY: Block reads to Tairseach config directory
+    // Agents should use auth.get / auth.list instead
+    if let Some(home) = dirs::home_dir() {
+        let tairseach_dir = home.join(".tairseach");
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if canonical.starts_with(&tairseach_dir) {
+            return JsonRpcResponse::error(
+                id,
+                -32004,
+                "Reads from Tairseach configuration directory are not allowed. Use auth.* methods instead.".to_string(),
+                None,
+            );
+        }
+    }
+
     // Check file size
     let metadata = match fs::metadata(path) {
         Ok(m) => m,
@@ -210,13 +226,12 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
                 );
             }
 
-            use base64_encode;
             JsonRpcResponse::success(
                 id,
                 serde_json::json!({
                     "path": file_path,
                     "encoding": "base64",
-                    "content": base64_encode(&buffer),
+                    "content": BASE64.encode(&buffer),
                     "size": metadata.len(),
                 }),
             )
@@ -318,7 +333,7 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
     info!("Writing file: {} (encoding={}, append={})", file_path, encoding, append);
 
     let bytes = match encoding {
-        "base64" => match base64_decode(content) {
+        "base64" => match BASE64.decode(content) {
             Ok(b) => b,
             Err(e) => {
                 return JsonRpcResponse::error(
@@ -521,84 +536,4 @@ fn list_dir_recursive(
     }
 
     Ok(())
-}
-
-// ============================================================================
-// Base64 helpers (minimal, no external crate needed)
-// ============================================================================
-
-/// Simple base64 encoding using the standard alphabet
-fn base64_encode(data: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
-    let chunks = data.chunks(3);
-
-    for chunk in chunks {
-        let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-
-        let n = (b0 << 16) | (b1 << 8) | b2;
-
-        result.push(ALPHABET[((n >> 18) & 63) as usize] as char);
-        result.push(ALPHABET[((n >> 12) & 63) as usize] as char);
-
-        if chunk.len() > 1 {
-            result.push(ALPHABET[((n >> 6) & 63) as usize] as char);
-        } else {
-            result.push('=');
-        }
-
-        if chunk.len() > 2 {
-            result.push(ALPHABET[(n & 63) as usize] as char);
-        } else {
-            result.push('=');
-        }
-    }
-
-    result
-}
-
-/// Simple base64 decoding
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    fn decode_char(c: u8) -> Result<u8, String> {
-        match c {
-            b'A'..=b'Z' => Ok(c - b'A'),
-            b'a'..=b'z' => Ok(c - b'a' + 26),
-            b'0'..=b'9' => Ok(c - b'0' + 52),
-            b'+' => Ok(62),
-            b'/' => Ok(63),
-            b'=' => Ok(0),
-            _ => Err(format!("Invalid base64 character: {}", c as char)),
-        }
-    }
-
-    let input = input.trim();
-    if input.len() % 4 != 0 {
-        return Err("Invalid base64 length".to_string());
-    }
-
-    let mut result = Vec::with_capacity(input.len() * 3 / 4);
-    let bytes = input.as_bytes();
-
-    for chunk in bytes.chunks(4) {
-        let b0 = decode_char(chunk[0])?;
-        let b1 = decode_char(chunk[1])?;
-        let b2 = decode_char(chunk[2])?;
-        let b3 = decode_char(chunk[3])?;
-
-        let n = ((b0 as u32) << 18) | ((b1 as u32) << 12) | ((b2 as u32) << 6) | (b3 as u32);
-
-        result.push((n >> 16) as u8);
-        if chunk[2] != b'=' {
-            result.push((n >> 8) as u8);
-        }
-        if chunk[3] != b'=' {
-            result.push(n as u8);
-        }
-    }
-
-    Ok(result)
 }

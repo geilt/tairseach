@@ -198,10 +198,43 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    if record.provider.is_empty() || record.account.is_empty() {
+    // Validation: known providers
+    const KNOWN_PROVIDERS: &[&str] = &["google"];
+    if !KNOWN_PROVIDERS.contains(&record.provider.as_str()) {
         return JsonRpcResponse::invalid_params(
             id,
-            "Both 'provider' and 'account' are required",
+            format!("Unsupported provider '{}'. Supported: {:?}", record.provider, KNOWN_PROVIDERS),
+        );
+    }
+
+    // Validation: provider "_internal" is reserved
+    if record.provider == "_internal" {
+        return JsonRpcResponse::invalid_params(
+            id,
+            "Provider '_internal' is reserved for system use and cannot be imported",
+        );
+    }
+
+    // Validation: account must not be empty and must be reasonable length
+    if record.account.is_empty() {
+        return JsonRpcResponse::invalid_params(
+            id,
+            "Field 'account' must not be empty",
+        );
+    }
+
+    if record.account.len() > 256 {
+        return JsonRpcResponse::invalid_params(
+            id,
+            "Field 'account' exceeds maximum length of 256 characters",
+        );
+    }
+
+    // Validation: access_token must not be empty
+    if record.access_token.is_empty() {
+        return JsonRpcResponse::invalid_params(
+            id,
+            "Field 'access_token' must not be empty",
         );
     }
 
