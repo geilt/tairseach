@@ -179,20 +179,14 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         .and_then(|v| v.as_str())
         .unwrap_or("default");
 
-    let access_token = {
-        // Strategy 1: Try new credential store
-        let cred_result = auth_broker
-            .get_credential("onepassword", Some(account))
-            .await;
-        
-        if let Ok(fields) = cred_result {
-            // New credential store — look for service_account_token field
+    let access_token = match auth_broker
+        .get_credential("onepassword", Some(account))
+        .await
+    {
+        Ok(fields) => {
             if let Some(token) = fields.get("service_account_token") {
                 token.clone()
-            } else if let Some(token) = fields.get("access_token") {
-                token.clone()
             } else {
-                // Has fields but no recognizable token field
                 return JsonRpcResponse::error(
                     id,
                     -32000,
@@ -200,32 +194,14 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
                     None,
                 );
             }
-        } else {
-            // Strategy 2: Try legacy token store with various provider names
-            let legacy_providers = ["onepassword", "1Password", "1password"];
-            let mut found_token = None;
-            
-            for provider_name in &legacy_providers {
-                if let Ok(data) = auth_broker.get_token(provider_name, account, None).await {
-                    if let Some(token) = data.get("access_token").and_then(|v| v.as_str()) {
-                        found_token = Some(token.to_string());
-                        break;
-                    }
-                }
-            }
-            
-            match found_token {
-                Some(token) => token,
-                None => {
-                    error!("Failed to get 1Password token from any source");
-                    return JsonRpcResponse::error(
-                        id,
-                        -32013,
-                        "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
-                        None,
-                    );
-                }
-            }
+        }
+        Err(_) => {
+            return JsonRpcResponse::error(
+                id,
+                -32013,
+                "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
+                None,
+            );
         }
     };
 
