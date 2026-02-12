@@ -170,38 +170,53 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         }
     };
 
-    // Retrieve 1Password token from auth broker
-    // Try multiple retrieval strategies:
-    // 1. New credential store (get_credential with "onepassword")
-    // 2. Legacy token store (get_token with various provider names)
-    let account = params
+    // Retrieve 1Password SA token — try explicit account, then "default", then first available
+    let explicit_account = params
         .get("account")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
+        .and_then(|v| v.as_str());
 
-    let access_token = match auth_broker
-        .get_credential("onepassword", Some(account))
-        .await
-    {
-        Ok(fields) => {
-            if let Some(token) = fields.get("service_account_token") {
-                token.clone()
-            } else {
+    let access_token = {
+        let mut attempts: Vec<String> = Vec::new();
+        if let Some(acct) = explicit_account {
+            attempts.push(acct.to_string());
+        }
+        attempts.push("default".to_string());
+        
+        let mut found = None;
+        for acct in &attempts {
+            if let Ok(fields) = auth_broker.get_credential("onepassword", Some(acct)).await {
+                if let Some(token) = fields.get("service_account_token") {
+                    found = Some(token.clone());
+                    break;
+                }
+            }
+        }
+        
+        // Fallback: list all onepassword credentials and use first match
+        if found.is_none() {
+            let all_creds = auth_broker.list_credentials().await;
+            for cred in &all_creds {
+                if cred.cred_type == "onepassword" {
+                    if let Ok(fields) = auth_broker.get_credential("onepassword", Some(&cred.account)).await {
+                        if let Some(token) = fields.get("service_account_token") {
+                            found = Some(token.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        match found {
+            Some(token) => token,
+            None => {
                 return JsonRpcResponse::error(
                     id,
-                    -32000,
-                    "1Password credential found but missing service_account_token field".to_string(),
+                    -32013,
+                    "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
                     None,
                 );
             }
-        }
-        Err(_) => {
-            return JsonRpcResponse::error(
-                id,
-                -32013,
-                "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
-                None,
-            );
         }
     };
 

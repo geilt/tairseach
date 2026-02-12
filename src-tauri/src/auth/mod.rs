@@ -900,25 +900,25 @@ pub async fn auth_credential_types() -> Result<Vec<credential_types::CredentialT
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn auth_credentials_store(
-    r#type: String,
+    credType: String,
     label: String,
     fields: std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
     let broker = get_or_init_broker().await?;
     broker
-        .store_credential(&r#type, &label, &r#type, fields, Some(&label))
+        .store_credential(&credType, &label, &credType, fields, Some(&label))
         .await
 }
 
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn auth_credentials_list(
-    r#type: Option<String>,
+    credType: Option<String>,
 ) -> Result<Vec<store::CredentialMetadata>, String> {
     let broker = get_or_init_broker().await?;
     let mut credentials = broker.list_credentials().await;
     
-    if let Some(filter_type) = r#type {
+    if let Some(filter_type) = credType {
         credentials.retain(|c| c.cred_type == filter_type);
     }
     
@@ -928,18 +928,18 @@ pub async fn auth_credentials_list(
 #[tauri::command]
 #[allow(non_snake_case)]
 pub async fn auth_credentials_get(
-    r#type: String,
+    credType: String,
     label: String,
 ) -> Result<std::collections::HashMap<String, String>, String> {
     let broker = get_or_init_broker().await?;
-    broker.get_credential(&r#type, Some(&label)).await
+    broker.get_credential(&credType, Some(&label)).await
 }
 
 #[tauri::command]
 #[allow(non_snake_case)]
-pub async fn auth_credentials_delete(r#type: String, label: String) -> Result<(), String> {
+pub async fn auth_credentials_delete(credType: String, label: String) -> Result<(), String> {
     let broker = get_or_init_broker().await?;
-    broker.delete_credential(&r#type, &label).await
+    broker.delete_credential(&credType, &label).await
 }
 
 #[tauri::command]

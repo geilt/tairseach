@@ -150,7 +150,7 @@ async function loadCredentialTypes() {
 async function loadAllCredentials() {
   loadingCredentials.value = true
   try {
-    const all = await invoke<CredentialMetadata[]>('auth_credentials_list', { type: null })
+    const all = await invoke<CredentialMetadata[]>('auth_credentials_list', { credType: null })
     
     // Group by type
     const grouped: Record<string, CredentialMetadata[]> = {}
@@ -208,7 +208,7 @@ async function saveCredential(typeId: string) {
   savingCredential.value = true
   try {
     await invoke('auth_credentials_store', {
-      type: typeId,
+      credType: typeId,
       label: formData.value.label,
       fields: Object.fromEntries(
         credType.fields.map(f => [f.name, formData.value[f.name] || ''])
@@ -239,7 +239,7 @@ async function deleteCredential(typeId: string, label: string) {
   if (!confirm(`Delete ${label}? This cannot be undone.`)) return
   
   try {
-    await invoke('auth_credentials_delete', { type: typeId, label })
+    await invoke('auth_credentials_delete', { credType: typeId, label })
     requestAnimationFrame(() => {
       setFeedback('success', 'Credential deleted')
     })
@@ -443,7 +443,7 @@ async function handleRevoke(account: AccountInfo) {
   if (!success) {
     // Fall back to credential delete
     try {
-      await invoke('auth_credentials_delete', { type: account.provider, label: account.account })
+      await invoke('auth_credentials_delete', { credType: account.provider, label: account.account })
       success = true
       // Reload accounts
       await store.loadAccounts({ silent: true })
