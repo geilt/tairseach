@@ -426,18 +426,38 @@ async function handleRefresh(account: AccountInfo) {
 }
 
 async function handleRevoke(account: AccountInfo) {
-  if (!confirm(`Revoke access for ${account.account}? This will delete the stored credentials.`)) {
+  if (!confirm(`Delete ${account.account}? This will permanently remove the stored credentials.`)) {
     return
   }
   
   actionMessage.value = null
-  const success = await store.revokeToken(account.provider, account.account)
+  
+  // Try revoke first (works for OAuth providers like Google), then delete
+  let success = false
+  try {
+    success = await store.revokeToken(account.provider, account.account)
+  } catch (_e) {
+    // Revoke not supported for this provider type — just delete
+  }
+  
+  if (!success) {
+    // Fall back to credential delete
+    try {
+      await invoke('auth_credentials_delete', { type: account.provider, label: account.account })
+      success = true
+      // Reload accounts
+      await store.loadAccounts({ silent: true })
+      await store.loadStatus({ silent: true })
+    } catch (e) {
+      console.error('Delete failed:', e)
+    }
+  }
   
   requestAnimationFrame(() => {
     if (success) {
-      actionMessage.value = { type: 'success', text: `Revoked ${account.account}` }
+      actionMessage.value = { type: 'success', text: `Deleted ${account.account}` }
     } else {
-      actionMessage.value = { type: 'error', text: store.error || 'Revoke failed' }
+      actionMessage.value = { type: 'error', text: store.error || 'Delete failed' }
     }
     setTimeout(() => actionMessage.value = null, 3000)
   })
@@ -606,7 +626,7 @@ function setFeedback(type: 'success' | 'error', text: string) {
                 :disabled="store.loading"
                 @click="handleRevoke(account)"
               >
-                🗑️ Revoke
+                🗑️ Delete
               </button>
             </div>
           </div>
