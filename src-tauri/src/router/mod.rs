@@ -36,14 +36,11 @@ impl CapabilityRouter {
 
         // Look up the tool in the manifest registry
         let (manifest, tool) = match self.registry.find_tool(tool_name).await {
-            Some(result) => {
-                tracing::info!("Router FOUND tool '{}' in manifest registry", tool_name);
-                result
-            },
+            Some(result) => result,
             None => {
                 // Not a manifest-registered tool, return method not found
                 // (legacy routing is handled at a higher level)
-                tracing::info!("Router did NOT find tool '{}' in manifest registry, returning -32601", tool_name);
+                debug!("Tool not found in manifest registry: {}", tool_name);
                 return JsonRpcResponse::method_not_found(id, tool_name);
             }
         };

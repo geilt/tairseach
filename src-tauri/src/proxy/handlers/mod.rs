@@ -51,51 +51,51 @@ fn required_permission(method: &str) -> Option<&'static str> {
         // Contacts
         "contacts.list" | "contacts.search" | "contacts.get" |
         "contacts.create" | "contacts.update" | "contacts.delete" => Some("contacts"),
-
+        
         // Calendar
         "calendar.list" | "calendar.events" | "calendar.getEvent" |
         "calendar.createEvent" | "calendar.updateEvent" | "calendar.deleteEvent" => Some("calendar"),
-
+        
         // Reminders
         "reminders.lists" | "reminders.list" | "reminders.create" |
         "reminders.complete" | "reminders.delete" => Some("reminders"),
-
+        
         // Location
         "location.get" | "location.watch" => Some("location"),
-
+        
         // Photos
         "photos.albums" | "photos.list" | "photos.get" => Some("photos"),
-
+        
         // Screen capture
         "screen.capture" | "screen.windows" => Some("screen_recording"),
-
+        
         // Automation
         "automation.run" => Some("automation"),
         "automation.click" | "automation.type" => Some("accessibility"),
-
+        
         // Files (Full Disk Access)
         "files.read" | "files.write" | "files.list" => Some("full_disk_access"),
-
+        
         // Camera
         "camera.capture" | "camera.start" | "camera.stop" => Some("camera"),
-
+        
         // Microphone
         "microphone.record" | "microphone.start" | "microphone.stop" => Some("microphone"),
-
+        
         // Auth methods don't require macOS permissions (socket security suffices)
         "auth.status" | "auth.providers" | "auth.accounts" | "auth.list" |
         "auth.token" | "auth.get" | "auth.refresh" | "auth.revoke" |
         "auth.store" | "auth.import" | "auth.gogPassphrase" => None,
-
+        
         // Permission methods don't require special permissions
         "permissions.check" | "permissions.list" | "permissions.request" => None,
-
+        
         // Config methods don't require special permissions
         "config.get" | "config.set" => None,
-
+        
         // Server control methods
         "server.status" | "server.shutdown" => None,
-
+        
         _ => None,
     }
 }
@@ -105,7 +105,7 @@ async fn check_permission_status(permission: &str) -> PermissionStatus {
     // This calls into the existing permissions module
     // For now, we'll implement a simple check - in the full implementation
     // this would call the actual permission checking code
-
+    
     match permission {
         "contacts" => check_contacts_permission().await,
         "calendar" => check_calendar_permission().await,
@@ -228,32 +228,28 @@ impl HandlerRegistry {
             router: Some(router),
         }
     }
-
+    
     /// Handle a JSON-RPC request
     pub async fn handle(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
         let id = request.id.clone().unwrap_or(Value::Null);
-
+        
         debug!("Handling method: {}", request.method);
-
+        
         // Try manifest-based routing first (if router is available)
         if let Some(router) = &self.router {
             let response = router.route(request).await;
-            let mnf = is_method_not_found(&response);
-            tracing::info!("Router response for {}: is_method_not_found={}, error={:?}",
-                request.method, mnf, response.error.as_ref().map(|e| e.code));
             // If router found the method, return its response
             // (method_not_found means it wasn't in the manifest registry)
-            if !mnf {
+            if !is_method_not_found(&response) {
                 return response;
             }
             // Otherwise, fall through to legacy routing
-            tracing::info!("Falling through to legacy routing for {}", request.method);
         }
-
+        
         // Legacy routing: check permissions for known methods
         if let Some(required) = required_permission(&request.method) {
             let status = check_permission_status(required).await;
-
+            
             if status != PermissionStatus::Granted {
                 warn!(
                     "Permission denied for method {}: {} is {}",
@@ -264,13 +260,10 @@ impl HandlerRegistry {
                 return JsonRpcResponse::permission_denied(id, required, status.as_str());
             }
         }
-
+        
         // Dispatch to handler
         let (namespace, action) = request.parse_method();
         
-        tracing::info!("Legacy routing dispatch: namespace='{}', action='{}', method='{}'", 
-            namespace, action, request.method);
-
         match namespace {
             "auth" => auth::handle(action, &request.params, id).await,
             "permissions" => permissions::handle(action, &request.params, id).await,
@@ -291,7 +284,7 @@ impl HandlerRegistry {
             _ => JsonRpcResponse::method_not_found(id, &request.method),
         }
     }
-
+    
     /// Handle server control methods
     async fn handle_server(&self, action: &str, _params: &Value, id: Value) -> JsonRpcResponse {
         match action {

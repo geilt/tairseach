@@ -4,7 +4,6 @@ mod google;
 mod manifest;
 mod mcp;
 mod monitor;
-// mod onepassword_ffi; // Disabled: replaced with direct REST API calls (FFI had struct layout crashes)
 mod permissions;
 mod profiles;
 mod proxy;
@@ -52,7 +51,7 @@ async fn start_proxy_server_internal() -> Result<(), String> {
         // Continue with empty registry
     }
 
-    // Start hot-reload watcher (dedicated OS thread to avoid FSEvents + tokio crash)
+    // Start hot-reload watcher
     let registry_clone = Arc::clone(&registry);
     tokio::spawn(async move {
         if let Err(e) = registry_clone.start_watcher().await {
