@@ -40,10 +40,12 @@ urlencoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 zeroize = { version = "1", features = ["derive"] }
 open = "5"
+hkdf = "0.12"
 
-# macOS Keychain (replacing security CLI)
+# macOS Keychain (optional, for v1 migration only)
 [target.'cfg(target_os = "macos")'.dependencies.security-framework]
 version = "2.11"
+optional = true
 
 # macOS system APIs
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -59,6 +61,7 @@ block2 = "0.6"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+keychain-migration = ["security-framework"]
 
 [profile.release]
 panic = "abort"

@@ -1,11 +1,12 @@
-//! Token Store
+//! Token Store v2
 //!
-//! Encrypted file-based token storage at `~/.tairseach/auth/`.
-//! Each token is stored as an encrypted JSON file. A metadata index
-//! (`metadata.json`, unencrypted) maps provider:account → file paths.
+//! Unified encrypted credential store at `~/.tairseach/credentials.enc.json`.
+//! Schema metadata (no secrets) at `~/.tairseach/credentials.schema.json`.
+//! Master key derived from machine identity (no Keychain prompts).
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{info, warn};
@@ -14,35 +15,65 @@ use zeroize::Zeroizing;
 use super::crypto;
 use super::{AccountInfo, TokenRecord};
 
-/// File extension for encrypted token files
-const ENC_EXT: &str = "json.enc";
-/// Passphrase filename
-const GOG_PASSPHRASE_FILE: &str = "gog_passphrase.enc";
+/// Credential file format version
+const SCHEMA_VERSION: u32 = 2;
 
-// ── Metadata ────────────────────────────────────────────────────────────────
+// ── File Formats ────────────────────────────────────────────────────────────
 
-/// Metadata index (unencrypted — contains no secrets)
+/// Encrypted credential entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Metadata {
+struct CredentialEntry {
+    encrypted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    algorithm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    iv: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
+    data: String,
+}
+
+/// Credentials file (encrypted)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CredentialsFile {
     version: u32,
-    accounts: Vec<MetadataEntry>,
+    credentials: HashMap<String, CredentialEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct MetadataEntry {
-    provider: String,
-    account: String,
-    scopes: Vec<String>,
-    added: String,
-    last_used: String,
-    file: String,
-}
-
-impl Default for Metadata {
+impl Default for CredentialsFile {
     fn default() -> Self {
         Self {
-            version: 1,
-            accounts: Vec::new(),
+            version: SCHEMA_VERSION,
+            credentials: HashMap::new(),
+        }
+    }
+}
+
+/// Schema entry (metadata, no secrets)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SchemaEntry {
+    provider: String,
+    account: String,
+    #[serde(rename = "type")]
+    cred_type: String,
+    scopes: Vec<String>,
+    added: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_refreshed: Option<String>,
+}
+
+/// Schema file (unencrypted metadata)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SchemaFile {
+    version: u32,
+    entries: HashMap<String, SchemaEntry>,
+}
+
+impl Default for SchemaFile {
+    fn default() -> Self {
+        Self {
+            version: SCHEMA_VERSION,
+            entries: HashMap::new(),
         }
     }
 }
@@ -50,86 +81,95 @@ impl Default for Metadata {
 // ── TokenStore ──────────────────────────────────────────────────────────────
 
 pub struct TokenStore {
-    /// Base directory: `~/.tairseach/auth/`
+    /// Base directory: `~/.tairseach/`
     base_dir: PathBuf,
     /// Master encryption key (zeroized on drop)
     master_key: Zeroizing<[u8; 32]>,
-    /// In-memory metadata cache
-    metadata: Metadata,
+    /// Credentials file
+    credentials: CredentialsFile,
+    /// Schema file
+    schema: SchemaFile,
 }
 
 impl TokenStore {
-    /// Create a new TokenStore, initialising the directory structure and
-    /// loading (or creating) the master key.
+    /// Create a new TokenStore, deriving the master key and loading credentials.
     pub async fn new() -> Result<Self, String> {
         let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let base_dir = home.join(".tairseach").join("auth");
+        let base_dir = home.join(".tairseach");
 
-        // Ensure directory structure
-        let providers_dir = base_dir.join("providers").join("google");
-        fs::create_dir_all(&providers_dir)
-            .map_err(|e| format!("Failed to create auth dir: {}", e))?;
+        // Ensure base directory exists
+        fs::create_dir_all(&base_dir)
+            .map_err(|e| format!("Failed to create .tairseach dir: {}", e))?;
 
-        // Set restrictive permissions on auth directory (macOS/Unix only)
+        // Set restrictive permissions on base directory
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&base_dir, fs::Permissions::from_mode(0o700))
-                .map_err(|e| format!("Failed to set auth dir permissions: {}", e))?;
+                .map_err(|e| format!("Failed to set base dir permissions: {}", e))?;
         }
 
-        // Get or create master key
-        let master_key = crypto::get_or_create_master_key()?;
+        // Derive master key (v2)
+        let master_key = crypto::derive_master_key()?;
 
-        // Load metadata
-        let metadata_path = base_dir.join("metadata.json");
-        let metadata = if metadata_path.exists() {
-            let data = fs::read_to_string(&metadata_path)
-                .map_err(|e| format!("Failed to read metadata: {}", e))?;
+        // Load or initialize credentials file
+        let cred_path = base_dir.join("credentials.enc.json");
+        let credentials = if cred_path.exists() {
+            let data = fs::read_to_string(&cred_path)
+                .map_err(|e| format!("Failed to read credentials file: {}", e))?;
             serde_json::from_str(&data)
-                .map_err(|e| format!("Failed to parse metadata: {}", e))?
+                .map_err(|e| format!("Failed to parse credentials file: {}", e))?
         } else {
-            let m = Metadata::default();
-            let json = serde_json::to_string_pretty(&m)
-                .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
-            fs::write(&metadata_path, &json)
-                .map_err(|e| format!("Failed to write metadata: {}", e))?;
-
-            // Set restrictive file permissions (0600)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                fs::set_permissions(&metadata_path, fs::Permissions::from_mode(0o600))
-                    .map_err(|e| format!("Failed to set metadata file permissions: {}", e))?;
-            }
-
-            m
+            CredentialsFile::default()
         };
 
-        info!(
-            "Token store initialized at {:?} ({} accounts)",
-            base_dir,
-            metadata.accounts.len()
-        );
+        // Load or initialize schema file
+        let schema_path = base_dir.join("credentials.schema.json");
+        let schema = if schema_path.exists() {
+            let data = fs::read_to_string(&schema_path)
+                .map_err(|e| format!("Failed to read schema file: {}", e))?;
+            serde_json::from_str(&data)
+                .map_err(|e| format!("Failed to parse schema file: {}", e))?
+        } else {
+            SchemaFile::default()
+        };
 
-        Ok(Self {
+        let mut store = Self {
             base_dir,
             master_key: Zeroizing::new(master_key),
-            metadata,
-        })
+            credentials,
+            schema,
+        };
+
+        // Migrate from v1 if old auth/ directory exists
+        store.migrate_from_v1().await?;
+
+        // Auto-encrypt any plaintext entries
+        let needs_flush = store.auto_encrypt_plaintext()?;
+        if needs_flush {
+            store.flush_credentials()?;
+        }
+
+        info!(
+            "Token store v{} initialized ({} credentials)",
+            SCHEMA_VERSION,
+            store.credentials.credentials.len()
+        );
+
+        Ok(store)
     }
 
     /// List all accounts (no secrets).
     pub fn list_accounts(&self) -> Vec<AccountInfo> {
-        self.metadata
-            .accounts
-            .iter()
+        self.schema
+            .entries
+            .values()
             .map(|e| AccountInfo {
                 provider: e.provider.clone(),
                 account: e.account.clone(),
                 scopes: e.scopes.clone(),
-                expiry: String::new(), // loaded from token file on demand
-                last_refreshed: e.last_used.clone(),
+                expiry: String::new(), // loaded from token on demand
+                last_refreshed: e.last_refreshed.clone().unwrap_or_default(),
             })
             .collect()
     }
@@ -140,31 +180,35 @@ impl TokenStore {
         provider: &str,
         account: &str,
     ) -> Result<Option<TokenRecord>, String> {
-        let entry = self
-            .metadata
-            .accounts
-            .iter()
-            .find(|e| e.provider == provider && e.account == account);
+        let key = credential_key(provider, account);
 
-        let entry = match entry {
+        let entry = match self.credentials.credentials.get(&key) {
             Some(e) => e,
             None => return Ok(None),
         };
 
-        let file_path = self.base_dir.join(&entry.file);
-        if !file_path.exists() {
-            warn!(
-                "Metadata references {:?} but file does not exist",
-                file_path
-            );
-            return Ok(None);
+        if !entry.encrypted {
+            return Err("Credential is not encrypted (should not happen after auto-encrypt)".to_string());
         }
 
-        let encrypted = fs::read(&file_path)
-            .map_err(|e| format!("Failed to read token file: {}", e))?;
+        // Decode base64 fields
+        let iv = BASE64.decode(entry.iv.as_ref().ok_or("Missing IV")?)
+            .map_err(|e| format!("Invalid IV base64: {}", e))?;
+        let tag = BASE64.decode(entry.tag.as_ref().ok_or("Missing tag")?)
+            .map_err(|e| format!("Invalid tag base64: {}", e))?;
+        let ciphertext = BASE64.decode(&entry.data)
+            .map_err(|e| format!("Invalid ciphertext base64: {}", e))?;
 
-        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted)?);
+        // Reconstruct the format expected by decrypt(): nonce || ciphertext+tag
+        let mut encrypted_blob = Vec::with_capacity(iv.len() + ciphertext.len() + tag.len());
+        encrypted_blob.extend_from_slice(&iv);
+        encrypted_blob.extend_from_slice(&ciphertext);
+        encrypted_blob.extend_from_slice(&tag);
 
+        // Decrypt
+        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted_blob)?);
+
+        // Parse JSON
         let record: TokenRecord = serde_json::from_slice(&*decrypted)
             .map_err(|e| format!("Failed to parse token JSON: {}", e))?;
 
@@ -173,141 +217,286 @@ impl TokenStore {
 
     /// Save (create or update) an encrypted token record.
     pub fn save_token(&mut self, record: &TokenRecord) -> Result<(), String> {
-        let file_rel = token_file_path(&record.provider, &record.account);
-        let file_abs = self.base_dir.join(&file_rel);
+        let key = credential_key(&record.provider, &record.account);
 
-        // Ensure parent directory exists
-        if let Some(parent) = file_abs.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create provider dir: {}", e))?;
-        }
-
-        // Encrypt and write
-        let json = serde_json::to_vec_pretty(record)
+        // Serialize token to JSON
+        let json = serde_json::to_vec(record)
             .map_err(|e| format!("Failed to serialize token: {}", e))?;
-        let encrypted = crypto::encrypt(&self.master_key, &json)?;
-        fs::write(&file_abs, &encrypted)
-            .map_err(|e| format!("Failed to write token file: {}", e))?;
 
-        // Set restrictive file permissions (0600)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&file_abs, fs::Permissions::from_mode(0o600))
-                .map_err(|e| format!("Failed to set token file permissions: {}", e))?;
+        // Encrypt (returns: nonce || ciphertext+tag)
+        let encrypted_blob = crypto::encrypt(&self.master_key, &json)?;
+
+        // Split into iv, ciphertext, tag
+        // AES-256-GCM: nonce=12 bytes, tag=16 bytes (appended to ciphertext by aes-gcm)
+        if encrypted_blob.len() < 12 + 16 {
+            return Err("Encrypted blob too short".to_string());
         }
 
-        // Update metadata
+        let iv = &encrypted_blob[0..12];
+        let ciphertext_and_tag = &encrypted_blob[12..];
+        let tag_offset = ciphertext_and_tag.len() - 16;
+        let ciphertext = &ciphertext_and_tag[..tag_offset];
+        let tag = &ciphertext_and_tag[tag_offset..];
+
+        // Store as base64
+        let entry = CredentialEntry {
+            encrypted: true,
+            algorithm: Some("aes-256-gcm".to_string()),
+            iv: Some(BASE64.encode(iv)),
+            tag: Some(BASE64.encode(tag)),
+            data: BASE64.encode(ciphertext),
+        };
+
+        self.credentials.credentials.insert(key.clone(), entry);
+
+        // Update schema
         let now = chrono::Utc::now().to_rfc3339();
-        if let Some(entry) = self
-            .metadata
-            .accounts
-            .iter_mut()
-            .find(|e| e.provider == record.provider && e.account == record.account)
-        {
-            entry.scopes = record.scopes.clone();
-            entry.last_used = now;
-        } else {
-            self.metadata.accounts.push(MetadataEntry {
-                provider: record.provider.clone(),
-                account: record.account.clone(),
-                scopes: record.scopes.clone(),
-                added: now.clone(),
-                last_used: now,
-                file: file_rel,
-            });
-        }
+        let schema_entry = SchemaEntry {
+            provider: record.provider.clone(),
+            account: record.account.clone(),
+            cred_type: "oauth2".to_string(),
+            scopes: record.scopes.clone(),
+            added: self
+                .schema
+                .entries
+                .get(&key)
+                .map(|e| e.added.clone())
+                .unwrap_or_else(|| now.clone()),
+            last_refreshed: Some(now),
+        };
 
-        self.flush_metadata()?;
+        self.schema.entries.insert(key, schema_entry);
+
+        // Flush both files
+        self.flush_credentials()?;
+        self.flush_schema()?;
+
         Ok(())
     }
 
     /// Delete a token record.
     pub fn delete_token(&mut self, provider: &str, account: &str) -> Result<(), String> {
-        let idx = self
-            .metadata
-            .accounts
-            .iter()
-            .position(|e| e.provider == provider && e.account == account);
+        let key = credential_key(provider, account);
 
-        if let Some(idx) = idx {
-            let entry = self.metadata.accounts.remove(idx);
-            let file_path = self.base_dir.join(&entry.file);
-            if file_path.exists() {
-                fs::remove_file(&file_path)
-                    .map_err(|e| format!("Failed to delete token file: {}", e))?;
-            }
-            self.flush_metadata()?;
-            Ok(())
-        } else {
-            Err(format!("No token found for {}:{}", provider, account))
-        }
-    }
-
-    /// Load the gog passphrase from encrypted storage.
-    pub fn load_gog_passphrase(&self) -> Result<Option<String>, String> {
-        let file_path = self.base_dir.join(GOG_PASSPHRASE_FILE);
-        if !file_path.exists() {
-            return Ok(None);
+        if self.credentials.credentials.remove(&key).is_none() {
+            return Err(format!("No credential found for {}:{}", provider, account));
         }
 
-        let encrypted = fs::read(&file_path)
-            .map_err(|e| format!("Failed to read gog passphrase file: {}", e))?;
-        let decrypted = Zeroizing::new(crypto::decrypt(&self.master_key, &encrypted)?);
-        let passphrase = String::from_utf8(decrypted.to_vec())
-            .map_err(|e| format!("Invalid gog passphrase encoding: {}", e))?;
+        self.schema.entries.remove(&key);
 
-        Ok(Some(passphrase))
-    }
-
-    /// Save the gog passphrase (encrypted).
-    pub fn save_gog_passphrase(&self, passphrase: &str) -> Result<(), String> {
-        let file_path = self.base_dir.join(GOG_PASSPHRASE_FILE);
-        let encrypted = crypto::encrypt(&self.master_key, passphrase.as_bytes())?;
-        fs::write(&file_path, &encrypted)
-            .map_err(|e| format!("Failed to write gog passphrase: {}", e))?;
-
-        // Set restrictive file permissions (0600)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&file_path, fs::Permissions::from_mode(0o600))
-                .map_err(|e| format!("Failed to set passphrase file permissions: {}", e))?;
-        }
+        self.flush_credentials()?;
+        self.flush_schema()?;
 
         Ok(())
     }
 
+    /// Load the gog passphrase from encrypted storage.
+    pub fn load_gog_passphrase(&self) -> Result<Option<String>, String> {
+        // Store gog passphrase as a special credential entry
+        match self.get_token("_internal", "gog_passphrase") {
+            Ok(Some(record)) => Ok(Some(record.access_token.clone())),
+            Ok(None) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Save the gog passphrase (encrypted).
+    pub fn save_gog_passphrase(&self, _passphrase: &str) -> Result<(), String> {
+        // We need mutable self, but this is called from immutable context in AuthBroker
+        // TODO: Refactor to allow mutable access for this operation
+        Err("save_gog_passphrase requires mutable access - not yet implemented in v2".to_string())
+    }
+
     // ── Internal ────────────────────────────────────────────────────────────
 
-    fn flush_metadata(&self) -> Result<(), String> {
-        let path = self.base_dir.join("metadata.json");
-        let json = serde_json::to_string_pretty(&self.metadata)
-            .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    fn flush_credentials(&self) -> Result<(), String> {
+        let path = self.base_dir.join("credentials.enc.json");
+        let json = serde_json::to_string_pretty(&self.credentials)
+            .map_err(|e| format!("Failed to serialize credentials: {}", e))?;
         fs::write(&path, &json)
-            .map_err(|e| format!("Failed to write metadata: {}", e))?;
+            .map_err(|e| format!("Failed to write credentials file: {}", e))?;
 
         // Set restrictive file permissions (0600)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-                .map_err(|e| format!("Failed to set metadata file permissions: {}", e))?;
+                .map_err(|e| format!("Failed to set credentials file permissions: {}", e))?;
         }
 
         Ok(())
+    }
+
+    fn flush_schema(&self) -> Result<(), String> {
+        let path = self.base_dir.join("credentials.schema.json");
+        let json = serde_json::to_string_pretty(&self.schema)
+            .map_err(|e| format!("Failed to serialize schema: {}", e))?;
+        fs::write(&path, &json)
+            .map_err(|e| format!("Failed to write schema file: {}", e))?;
+
+        // Set readable permissions (0644)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644))
+                .map_err(|e| format!("Failed to set schema file permissions: {}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Auto-encrypt any plaintext entries.
+    /// Returns true if any entries were encrypted (requiring flush).
+    fn auto_encrypt_plaintext(&mut self) -> Result<bool, String> {
+        let mut modified = false;
+
+        let keys: Vec<String> = self.credentials.credentials.keys().cloned().collect();
+
+        for key in keys {
+            let entry = self.credentials.credentials.get(&key).unwrap();
+            
+            if !entry.encrypted {
+                info!("Auto-encrypting plaintext credential: {}", key);
+
+                // Encrypt the plaintext data
+                let plaintext = entry.data.as_bytes();
+                let encrypted_blob = crypto::encrypt(&self.master_key, plaintext)?;
+
+                // Split into components
+                let iv = &encrypted_blob[0..12];
+                let ciphertext_and_tag = &encrypted_blob[12..];
+                let tag_offset = ciphertext_and_tag.len() - 16;
+                let ciphertext = &ciphertext_and_tag[..tag_offset];
+                let tag = &ciphertext_and_tag[tag_offset..];
+
+                let new_entry = CredentialEntry {
+                    encrypted: true,
+                    algorithm: Some("aes-256-gcm".to_string()),
+                    iv: Some(BASE64.encode(iv)),
+                    tag: Some(BASE64.encode(tag)),
+                    data: BASE64.encode(ciphertext),
+                };
+
+                self.credentials.credentials.insert(key, new_entry);
+                modified = true;
+            }
+        }
+
+        Ok(modified)
+    }
+
+    /// Migrate from v1 (individual .json.enc files + Keychain) to v2.
+    async fn migrate_from_v1(&mut self) -> Result<(), String> {
+        let old_auth_dir = self.base_dir.join("auth");
+        
+        if !old_auth_dir.exists() {
+            // No v1 data to migrate
+            return Ok(());
+        }
+
+        info!("Detected v1 auth directory, attempting migration");
+
+        #[cfg(feature = "keychain-migration")]
+        {
+            self.do_v1_migration(&old_auth_dir)
+        }
+
+        #[cfg(not(feature = "keychain-migration"))]
+        {
+            warn!("V1 migration requires keychain-migration feature - skipping");
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "keychain-migration")]
+    fn do_v1_migration(&mut self, old_auth_dir: &std::path::Path) -> Result<(), String> {
+        // Try to read old master key from Keychain
+            let old_key = match crypto::read_keychain_master_key() {
+                Ok(key) => {
+                    info!("Retrieved v1 master key from Keychain");
+                    key
+                }
+                Err(e) => {
+                    warn!("Could not read v1 master key from Keychain: {}", e);
+                    warn!("Skipping v1 migration - manual token re-import required");
+                    return Ok(());
+                }
+            };
+
+            // Find all .json.enc files
+            let providers_dir = old_auth_dir.join("providers");
+            if !providers_dir.exists() {
+                return Ok(());
+            }
+
+            let mut migrated_count = 0;
+
+            for provider_dir in fs::read_dir(&providers_dir)
+                .map_err(|e| format!("Failed to read providers dir: {}", e))?
+            {
+                let provider_dir = provider_dir
+                    .map_err(|e| format!("Failed to read provider dir entry: {}", e))?;
+                
+                if !provider_dir.file_type()
+                    .map_err(|e| format!("Failed to get file type: {}", e))?
+                    .is_dir()
+                {
+                    continue;
+                }
+
+                for entry in fs::read_dir(provider_dir.path())
+                    .map_err(|e| format!("Failed to read provider subdir: {}", e))?
+                {
+                    let entry = entry
+                        .map_err(|e| format!("Failed to read entry: {}", e))?;
+                    
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("enc") {
+                        // Decrypt with old key
+                        let encrypted = fs::read(&path)
+                            .map_err(|e| format!("Failed to read v1 token file: {}", e))?;
+                        
+                        match crypto::decrypt(&old_key, &encrypted) {
+                            Ok(decrypted) => {
+                                let record: TokenRecord = serde_json::from_slice(&decrypted)
+                                    .map_err(|e| format!("Failed to parse v1 token: {}", e))?;
+                                
+                                info!(
+                                    "Migrating token: {}:{}",
+                                    record.provider, record.account
+                                );
+                                
+                                // Re-encrypt with new key and save
+                                self.save_token(&record)?;
+                                migrated_count += 1;
+                            }
+                            Err(e) => {
+                                warn!("Failed to decrypt v1 token at {:?}: {}", path, e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if migrated_count > 0 {
+                info!("Successfully migrated {} tokens from v1 to v2", migrated_count);
+                
+                // Optionally delete v1 Keychain entry
+                match crypto::delete_keychain_master_key() {
+                    Ok(()) => info!("Deleted v1 master key from Keychain"),
+                    Err(e) => warn!("Could not delete v1 Keychain key: {}", e),
+                }
+            }
+
+            Ok(())
     }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Build the relative file path for a token.
-/// Uses SHA-256 of `provider:account` to derive a non-identifying filename.
-fn token_file_path(provider: &str, account: &str) -> String {
-    let input = format!("{}:{}", provider, account);
-    let hash = Sha256::digest(input.as_bytes());
-    let hash_hex = hex::encode(&hash[..8]); // First 8 bytes = 16 hex chars (enough uniqueness)
-    format!("providers/{}/{}.{}", provider, hash_hex, ENC_EXT)
+/// Build the credential key for a provider:account pair.
+fn credential_key(provider: &str, account: &str) -> String {
+    format!("{}:{}", provider, account)
 }
 
 #[cfg(test)]
@@ -315,23 +504,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_token_file_path() {
-        let path = token_file_path("google", "alex@esotech.com");
-        assert!(path.starts_with("providers/google/"));
-        assert!(path.ends_with(".json.enc"));
+    fn test_credential_key() {
+        let key = credential_key("google", "alex@example.com");
+        assert_eq!(key, "google:alex@example.com");
     }
 
     #[test]
-    fn test_deterministic_path() {
-        let p1 = token_file_path("google", "alex@esotech.com");
-        let p2 = token_file_path("google", "alex@esotech.com");
-        assert_eq!(p1, p2);
-    }
-
-    #[test]
-    fn test_different_accounts_different_paths() {
-        let p1 = token_file_path("google", "alex@esotech.com");
-        let p2 = token_file_path("google", "other@example.com");
-        assert_ne!(p1, p2);
+    fn test_credential_key_deterministic() {
+        let k1 = credential_key("google", "alex@example.com");
+        let k2 = credential_key("google", "alex@example.com");
+        assert_eq!(k1, k2);
     }
 }

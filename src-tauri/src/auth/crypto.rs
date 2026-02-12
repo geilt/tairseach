@@ -1,25 +1,36 @@
 //! Cryptographic utilities for the Auth Broker
 //!
 //! - AES-256-GCM for token encryption at rest
-//! - Master key management via macOS Keychain (Security framework)
+//! - Master key derivation via HKDF from machine identity
 //! - Passphrase generation
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
+use hkdf::Hkdf;
 use rand::RngCore;
+use sha2::Sha256;
+use std::process::Command;
 use tracing::info;
-
-/// Keychain service name for the master key
-const KEYCHAIN_SERVICE: &str = "com.naonur.tairseach.auth-broker";
-/// Keychain account name for the master key
-const KEYCHAIN_ACCOUNT: &str = "master-key";
 
 /// AES-256-GCM nonce size (96 bits)
 const NONCE_SIZE: usize = 12;
 /// AES-256 key size (256 bits)
 const KEY_SIZE: usize = 32;
+
+/// Static salt for machine identity
+const STATIC_SALT: &str = "nechtan-guards-the-secrets";
+/// HKDF salt for key derivation
+const HKDF_SALT: &[u8] = b"tairseach-credential-store-v2";
+/// HKDF info for master key
+const HKDF_INFO: &[u8] = b"master-key";
+
+// V1 Keychain constants (only used if keychain-migration feature enabled)
+#[cfg(feature = "keychain-migration")]
+const KEYCHAIN_SERVICE: &str = "com.naonur.tairseach.auth-broker";
+#[cfg(feature = "keychain-migration")]
+const KEYCHAIN_ACCOUNT: &str = "master-key";
 
 // ── Encryption / Decryption ─────────────────────────────────────────────────
 
@@ -61,46 +72,78 @@ pub fn decrypt(key: &[u8; KEY_SIZE], data: &[u8]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Decryption failed: {}", e))
 }
 
-// ── Master Key ──────────────────────────────────────────────────────────────
+// ── Master Key (v2: Machine-Derived) ───────────────────────────────────────
 
-/// Get or create the master encryption key from the macOS Keychain.
+/// Derive the master encryption key from machine identity.
 ///
-/// On first call, generates a random 256-bit key and stores it in the Keychain
-/// under Tairseach's code-signing identity. Subsequent calls retrieve it.
-/// The user approves Keychain access once; after that it's permanent.
+/// Uses HKDF-SHA256 with inputs:
+/// - Hardware UUID (from IOPlatformExpertDevice)
+/// - Username (from $USER env var)
+/// - Static salt ("nechtan-guards-the-secrets")
 ///
-/// **SECURITY:** Uses native Security framework APIs. The key NEVER appears in
-/// process arguments or environment variables.
+/// **SECURITY:** Deterministic, machine-bound, no user interaction required.
+/// The key is derived fresh on each call — never stored on disk.
 #[cfg(target_os = "macos")]
-pub fn get_or_create_master_key() -> Result<[u8; KEY_SIZE], String> {
-    // Try to read existing key
-    match read_keychain_item() {
-        Ok(key) => {
-            info!("Retrieved master key from Keychain");
-            Ok(key)
-        }
-        Err(_) => {
-            // Generate new key
-            info!("Generating new master key and storing in Keychain");
-            let mut key = [0u8; KEY_SIZE];
-            OsRng.fill_bytes(&mut key);
+pub fn derive_master_key() -> Result<[u8; KEY_SIZE], String> {
+    let hw_uuid = get_hardware_uuid()?;
+    let username = std::env::var("USER")
+        .map_err(|_| "Could not determine username from $USER")?;
 
-            write_keychain_item(&key)?;
-            Ok(key)
-        }
-    }
+    let ikm = format!("{}:{}:{}", hw_uuid, username, STATIC_SALT);
+    
+    let hkdf = Hkdf::<Sha256>::new(Some(HKDF_SALT), ikm.as_bytes());
+    let mut key = [0u8; KEY_SIZE];
+    hkdf.expand(HKDF_INFO, &mut key)
+        .map_err(|e| format!("HKDF expand failed: {}", e))?;
+
+    info!("Derived master key from machine identity");
+    Ok(key)
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn get_or_create_master_key() -> Result<[u8; KEY_SIZE], String> {
-    Err("Master key management requires macOS Keychain".to_string())
+pub fn derive_master_key() -> Result<[u8; KEY_SIZE], String> {
+    Err("Master key derivation requires macOS hardware UUID".to_string())
 }
 
-/// Read the master key from macOS Keychain using the Security framework.
+/// Retrieve the hardware UUID from macOS IOKit.
+#[cfg(target_os = "macos")]
+fn get_hardware_uuid() -> Result<String, String> {
+    let output = Command::new("ioreg")
+        .args(["-d2", "-c", "IOPlatformExpertDevice"])
+        .output()
+        .map_err(|e| format!("Failed to execute ioreg: {}", e))?;
+
+    if !output.status.success() {
+        return Err("ioreg command failed".to_string());
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| format!("Invalid UTF-8 from ioreg: {}", e))?;
+
+    // Parse: "IOPlatformUUID" = "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+    for line in stdout.lines() {
+        if line.contains("IOPlatformUUID") {
+            if let Some(start) = line.find('"').and_then(|i| line[i+1..].find('"').map(|j| i+j+2)) {
+                if let Some(end) = line[start..].find('"').map(|i| start + i) {
+                    let uuid = &line[start..end];
+                    if !uuid.is_empty() {
+                        return Ok(uuid.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Err("Could not find IOPlatformUUID in ioreg output".to_string())
+}
+
+// ── V1 Keychain Migration (feature-gated) ──────────────────────────────────
+
+/// Read the master key from macOS Keychain (v1 migration only).
 ///
 /// **SECURITY:** Direct API calls, no CLI subprocess, key stays in process memory.
-#[cfg(target_os = "macos")]
-fn read_keychain_item() -> Result<[u8; KEY_SIZE], String> {
+#[cfg(all(target_os = "macos", feature = "keychain-migration"))]
+pub fn read_keychain_master_key() -> Result<[u8; KEY_SIZE], String> {
     use security_framework::passwords::get_generic_password;
 
     match get_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
@@ -120,23 +163,15 @@ fn read_keychain_item() -> Result<[u8; KEY_SIZE], String> {
     }
 }
 
-/// Store the master key in macOS Keychain using the Security framework.
-///
-/// **SECURITY:** Direct API calls, no CLI subprocess, key never exposed to ps/pgrep.
-#[cfg(target_os = "macos")]
-fn write_keychain_item(key: &[u8; KEY_SIZE]) -> Result<(), String> {
-    use security_framework::passwords::{delete_generic_password, set_generic_password};
-
-    let hex_str = key_to_hex(key);
-
-    // Delete existing item if present (ignore errors)
-    let _ = delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
-
-    // Store new key
-    set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, hex_str.as_bytes())
-        .map_err(|e| format!("Failed to store master key in Keychain: {}", e))?;
-
-    info!("Master key stored in Keychain");
+/// Delete the master key from macOS Keychain (v1 cleanup).
+#[cfg(all(target_os = "macos", feature = "keychain-migration"))]
+pub fn delete_keychain_master_key() -> Result<(), String> {
+    use security_framework::passwords::delete_generic_password;
+    
+    delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+        .map_err(|e| format!("Failed to delete keychain master key: {}", e))?;
+    
+    info!("Deleted v1 master key from Keychain");
     Ok(())
 }
 
@@ -150,12 +185,14 @@ pub fn generate_passphrase() -> String {
     hex::encode(bytes)
 }
 
-// ── Hex Utilities ───────────────────────────────────────────────────────────
+// ── Hex Utilities (for v1 migration) ────────────────────────────────────────
 
+#[cfg(feature = "keychain-migration")]
 fn key_to_hex(key: &[u8; KEY_SIZE]) -> String {
     hex::encode(key)
 }
 
+#[cfg(feature = "keychain-migration")]
 fn hex_to_key(hex_str: &str) -> Result<[u8; KEY_SIZE], String> {
     let bytes = hex::decode(hex_str).map_err(|e| format!("Invalid hex: {}", e))?;
     if bytes.len() != KEY_SIZE {
@@ -204,11 +241,52 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "keychain-migration")]
     fn test_hex_roundtrip() {
         let mut key = [0u8; KEY_SIZE];
         OsRng.fill_bytes(&mut key);
         let hex = key_to_hex(&key);
         let back = hex_to_key(&hex).unwrap();
         assert_eq!(key, back);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_hardware_uuid_retrieval() {
+        // Skip if ioreg is not available (e.g., in CI)
+        if std::process::Command::new("which").arg("ioreg").output().ok()
+            .map(|o| o.status.success()).unwrap_or(false)
+        {
+            let uuid = get_hardware_uuid().unwrap();
+            assert!(!uuid.is_empty());
+            assert!(uuid.contains('-'));
+            // UUID format: 8-4-4-4-12 characters
+            assert_eq!(uuid.len(), 36);
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_derive_master_key_deterministic() {
+        // Skip if ioreg is not available (e.g., in CI)
+        if std::process::Command::new("which").arg("ioreg").output().ok()
+            .map(|o| o.status.success()).unwrap_or(false)
+        {
+            let key1 = derive_master_key().unwrap();
+            let key2 = derive_master_key().unwrap();
+            assert_eq!(key1, key2, "Derived key should be deterministic");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_derive_master_key_length() {
+        // Skip if ioreg is not available (e.g., in CI)
+        if std::process::Command::new("which").arg("ioreg").output().ok()
+            .map(|o| o.status.success()).unwrap_or(false)
+        {
+            let key = derive_master_key().unwrap();
+            assert_eq!(key.len(), KEY_SIZE);
+        }
     }
 }
