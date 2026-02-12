@@ -29,6 +29,7 @@ pub struct CredentialField {
 /// Credential type schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialTypeSchema {
+    #[serde(rename = "type", alias = "provider_type")]
     pub provider_type: String,
     pub display_name: String,
     pub description: String,

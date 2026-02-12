@@ -22,9 +22,11 @@ use super::{AccountInfo, TokenRecord};
 /// Credential metadata (no secrets)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialMetadata {
-    pub provider: String,
-    pub account: String,
+    #[serde(rename = "type", alias = "cred_type")]
     pub cred_type: String,
+    #[serde(rename = "label", alias = "account")]
+    pub account: String,
+    pub provider: String,
     pub added: String,
     pub last_refreshed: Option<String>,
 }
