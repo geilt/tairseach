@@ -42,6 +42,7 @@ zeroize = { version = "1", features = ["derive"] }
 open = "5"
 hkdf = "0.12"
 async-trait = "0.1"
+libloading = "0.8"
 
 # macOS Keychain (optional, for v1 migration only)
 [target.'cfg(target_os = "macos")'.dependencies.security-framework]

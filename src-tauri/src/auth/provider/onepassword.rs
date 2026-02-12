@@ -1,7 +1,7 @@
 //! 1Password Provider
 //!
 //! Manages 1Password Service Account tokens.
-//! Unlike OAuth providers, 1Password uses a fixed service account token.
+//! Validates via REST API (no FFI dependency).
 
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -15,35 +15,61 @@ pub struct OnePasswordToken {
 /// Provider name constant
 pub const PROVIDER_NAME: &str = "onepassword";
 
-/// Validate a service account token by attempting a status check
+/// Validate a service account token by calling the vaults endpoint
 pub async fn validate_token(token: &str) -> Result<(), String> {
-    info!("Validating 1Password service account token");
+    info!("Validating 1Password service account token via REST API");
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let base = extract_api_base(token);
+    let url = format!("{}/v1/vaults", base);
 
-    const API_BASE_URL: &str = "https://api.1password.com";
-    let url = format!("{}/v1/heartbeat", API_BASE_URL);
-    
-    let response = client
+    let client = reqwest::Client::new();
+    let resp = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {}", e))?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Failed to read error response".to_string());
-        return Err(format!("Validation failed (HTTP {}): {}", status, body));
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        Err(format!("Token validation failed ({}): {}", status, &body[..body.len().min(200)]))
+    }
+}
+
+/// Extract the API base URL from a 1Password Service Account JWT token
+fn extract_api_base(token: &str) -> String {
+    let jwt_part = if token.starts_with("ops_") {
+        &token[4..]
+    } else {
+        token
+    };
+
+    if let Some(payload_b64) = jwt_part.split('.').nth(1) {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        if let Ok(payload_bytes) = engine.decode(payload_b64) {
+            if let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&payload_bytes) {
+                if let Some(aud) = payload.get("aud").and_then(|v| v.as_array()) {
+                    for url in aud {
+                        if let Some(url_str) = url.as_str() {
+                            if url_str.starts_with("https://") {
+                                return url_str.trim_end_matches('/').to_string();
+                            }
+                        }
+                    }
+                } else if let Some(aud) = payload.get("aud").and_then(|v| v.as_str()) {
+                    if aud.starts_with("https://") {
+                        return aud.trim_end_matches('/').to_string();
+                    }
+                }
+            }
+        }
     }
 
-    Ok(())
+    "https://events.1password.com".to_string()
 }
 
 /// Get Service Account API base URL
