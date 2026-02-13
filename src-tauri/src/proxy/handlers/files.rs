@@ -10,6 +10,7 @@ use std::fs;
 use std::path::Path;
 use tracing::{info, warn};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Maximum file size we'll read into memory (10 MB)
@@ -118,45 +119,26 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 ///   - encoding (optional): "utf8" (default) or "base64"
 ///   - maxSize (optional): maximum bytes to read (default 10MB)
 async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
-    let file_path = match params.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'path' parameter");
-        }
+    let file_path = match require_string(params, "path", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let encoding = params
-        .get("encoding")
-        .and_then(|v| v.as_str())
-        .unwrap_or("utf8");
-
-    let max_size = params
-        .get("maxSize")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(MAX_READ_SIZE);
+    let encoding = string_with_default(params, "encoding", "utf8");
+    let max_size = u64_with_default(params, "maxSize", MAX_READ_SIZE);
 
     // Validate the path
     let path = Path::new(file_path);
     if !path.is_absolute() {
-        return JsonRpcResponse::invalid_params(id, "Path must be absolute");
+        return invalid_params(id, "Path must be absolute");
     }
 
     if !path.exists() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("File not found: {}", file_path),
-            None,
-        );
+        return error(id, -32002, format!("File not found: {}", file_path));
     }
 
     if !path.is_file() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Not a file: {}", file_path),
-            None,
-        );
+        return error(id, -32002, format!("Not a file: {}", file_path));
     }
 
     // SECURITY: Block reads to Tairseach config directory
@@ -165,11 +147,10 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
         let tairseach_dir = home.join(".tairseach");
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         if canonical.starts_with(&tairseach_dir) {
-            return JsonRpcResponse::error(
+            return error(
                 id,
                 -32004,
-                "Reads from Tairseach configuration directory are not allowed. Use auth.* methods instead.".to_string(),
-                None,
+                "Reads from Tairseach configuration directory are not allowed. Use auth.* methods instead.",
             );
         }
     }
@@ -178,17 +159,12 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
     let metadata = match fs::metadata(path) {
         Ok(m) => m,
         Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to read file metadata: {}", e),
-                None,
-            );
+            return generic_error(id, format!("Failed to read file metadata: {}", e));
         }
     };
 
     if metadata.len() > max_size {
-        return JsonRpcResponse::error(
+        return error(
             id,
             -32003,
             format!(
@@ -196,7 +172,6 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
                 metadata.len(),
                 max_size
             ),
-            None,
         );
     }
 
@@ -208,25 +183,15 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
             let mut file = match fs::File::open(path) {
                 Ok(f) => f,
                 Err(e) => {
-                    return JsonRpcResponse::error(
-                        id,
-                        -32000,
-                        format!("Failed to open file: {}", e),
-                        None,
-                    );
+                    return generic_error(id, format!("Failed to open file: {}", e));
                 }
             };
             let mut buffer = Vec::new();
             if let Err(e) = file.read_to_end(&mut buffer) {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Failed to read file: {}", e),
-                    None,
-                );
+                return generic_error(id, format!("Failed to read file: {}", e));
             }
 
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "path": file_path,
@@ -239,7 +204,7 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
         _ => {
             // UTF-8 text
             match fs::read_to_string(path) {
-                Ok(content) => JsonRpcResponse::success(
+                Ok(content) => ok(
                     id,
                     serde_json::json!({
                         "path": file_path,
@@ -250,12 +215,7 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
                 ),
                 Err(e) => {
                     // If UTF-8 fails, suggest base64
-                    JsonRpcResponse::error(
-                        id,
-                        -32000,
-                        format!("Failed to read as UTF-8: {}. Try encoding='base64'.", e),
-                        None,
-                    )
+                    generic_error(id, format!("Failed to read as UTF-8: {}. Try encoding='base64'.", e))
                 }
             }
         }
@@ -271,61 +231,36 @@ async fn handle_read(params: &Value, id: Value) -> JsonRpcResponse {
 ///   - createDirs (optional): create parent directories if missing (default false)
 ///   - append (optional): append instead of overwrite (default false)
 async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
-    let file_path = match params.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'path' parameter");
-        }
+    let file_path = match require_string(params, "path", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let content = match params.get("content").and_then(|v| v.as_str()) {
-        Some(c) => c,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'content' parameter");
-        }
+    let content = match require_string(params, "content", &id) {
+        Ok(c) => c,
+        Err(response) => return response,
     };
 
-    let encoding = params
-        .get("encoding")
-        .and_then(|v| v.as_str())
-        .unwrap_or("utf8");
-
-    let create_dirs = params
-        .get("createDirs")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let append = params
-        .get("append")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let encoding = string_with_default(params, "encoding", "utf8");
+    let create_dirs = bool_with_default(params, "createDirs", false);
+    let append = bool_with_default(params, "append", false);
 
     // Validate the path
     let path = Path::new(file_path);
     if !path.is_absolute() {
-        return JsonRpcResponse::invalid_params(id, "Path must be absolute");
+        return invalid_params(id, "Path must be absolute");
     }
 
     // SECURITY: Check path restrictions (deny writes to critical system paths)
     if let Err(e) = validate_write_path(path) {
-        return JsonRpcResponse::error(
-            id,
-            -32004,
-            format!("Path not allowed for writing: {}", e),
-            None,
-        );
+        return error(id, -32004, format!("Path not allowed for writing: {}", e));
     }
 
     // Create parent directories if requested
     if create_dirs {
         if let Some(parent) = path.parent() {
             if let Err(e) = fs::create_dir_all(parent) {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Failed to create directories: {}", e),
-                    None,
-                );
+                return generic_error(id, format!("Failed to create directories: {}", e));
             }
         }
     }
@@ -336,12 +271,7 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
         "base64" => match BASE64.decode(content) {
             Ok(b) => b,
             Err(e) => {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Invalid base64 content: {}", e),
-                    None,
-                );
+                return generic_error(id, format!("Invalid base64 content: {}", e));
             }
         },
         _ => content.as_bytes().to_vec(),
@@ -352,12 +282,7 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
         let mut file = match fs::OpenOptions::new().append(true).create(true).open(path) {
             Ok(f) => f,
             Err(e) => {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Failed to open file for appending: {}", e),
-                    None,
-                );
+                return generic_error(id, format!("Failed to open file for appending: {}", e));
             }
         };
         file.write_all(&bytes)
@@ -366,7 +291,7 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
     };
 
     match result {
-        Ok(()) => JsonRpcResponse::success(
+        Ok(()) => ok(
             id,
             serde_json::json!({
                 "path": file_path,
@@ -375,12 +300,7 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
                 "append": append,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(
-            id,
-            -32000,
-            format!("Failed to write file: {}", e),
-            None,
-        ),
+        Err(e) => generic_error(id, format!("Failed to write file: {}", e)),
     }
 }
 
@@ -392,49 +312,26 @@ async fn handle_write(params: &Value, id: Value) -> JsonRpcResponse {
 ///   - includeHidden (optional): include hidden files (default false)
 ///   - limit (optional): maximum entries to return (default 1000)
 async fn handle_list(params: &Value, id: Value) -> JsonRpcResponse {
-    let dir_path = match params.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'path' parameter");
-        }
+    let dir_path = match require_string(params, "path", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let recursive = params
-        .get("recursive")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let include_hidden = params
-        .get("includeHidden")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1000) as usize;
+    let recursive = bool_with_default(params, "recursive", false);
+    let include_hidden = bool_with_default(params, "includeHidden", false);
+    let limit = u64_with_default(params, "limit", 1000) as usize;
 
     let path = Path::new(dir_path);
     if !path.is_absolute() {
-        return JsonRpcResponse::invalid_params(id, "Path must be absolute");
+        return invalid_params(id, "Path must be absolute");
     }
 
     if !path.exists() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Directory not found: {}", dir_path),
-            None,
-        );
+        return error(id, -32002, format!("Directory not found: {}", dir_path));
     }
 
     if !path.is_dir() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Not a directory: {}", dir_path),
-            None,
-        );
+        return error(id, -32002, format!("Not a directory: {}", dir_path));
     }
 
     info!("Listing directory: {} (recursive={}, limit={})", dir_path, recursive, limit);
@@ -448,7 +345,7 @@ async fn handle_list(params: &Value, id: Value) -> JsonRpcResponse {
 
     let truncated = entries.len() >= limit;
 
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "path": dir_path,

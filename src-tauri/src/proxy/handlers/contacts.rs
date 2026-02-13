@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::info;
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Contact representation
@@ -39,11 +40,11 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 
 /// List all contacts with optional pagination
 async fn handle_list(params: &Value, id: Value) -> JsonRpcResponse {
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
-    let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let limit = u64_with_default(params, "limit", 100) as usize;
+    let offset = u64_with_default(params, "offset", 0) as usize;
     
     match fetch_contacts_native(None, limit, offset) {
-        Ok(contacts) => JsonRpcResponse::success(
+        Ok(contacts) => ok(
             id,
             serde_json::json!({
                 "contacts": contacts,
@@ -52,23 +53,21 @@ async fn handle_list(params: &Value, id: Value) -> JsonRpcResponse {
                 "offset": offset,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Search contacts by name
 async fn handle_search(params: &Value, id: Value) -> JsonRpcResponse {
-    let query = match params.get("query").and_then(|v| v.as_str()) {
-        Some(q) => q,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'query' parameter");
-        }
+    let query = match require_string(params, "query", &id) {
+        Ok(q) => q,
+        Err(response) => return response,
     };
     
-    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+    let limit = u64_with_default(params, "limit", 50) as usize;
     
     match fetch_contacts_native(Some(query), limit, 0) {
-        Ok(contacts) => JsonRpcResponse::success(
+        Ok(contacts) => ok(
             id,
             serde_json::json!({
                 "query": query,
@@ -76,117 +75,92 @@ async fn handle_search(params: &Value, id: Value) -> JsonRpcResponse {
                 "count": contacts.len(),
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Get a specific contact by ID
 async fn handle_get(params: &Value, id: Value) -> JsonRpcResponse {
-    let contact_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let contact_id = match require_string(params, "id", &id) {
+        Ok(c) => c,
+        Err(response) => return response,
     };
     
     match fetch_contact_by_id_native(contact_id) {
-        Ok(Some(contact)) => JsonRpcResponse::success(id, serde_json::to_value(contact).unwrap_or_default()),
-        Ok(None) => JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Contact not found: {}", contact_id),
-            None,
-        ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(Some(contact)) => ok(id, serde_json::to_value(contact).unwrap_or_default()),
+        Ok(None) => error(id, -32002, format!("Contact not found: {}", contact_id)),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Create a new contact
 async fn handle_create(params: &Value, id: Value) -> JsonRpcResponse {
-    let first_name = params.get("firstName").and_then(|v| v.as_str());
-    let last_name = params.get("lastName").and_then(|v| v.as_str());
-    let organization = params.get("organization").and_then(|v| v.as_str());
-    let emails: Vec<String> = params
-        .get("emails")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
-    let phones: Vec<String> = params
-        .get("phones")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
+    let first_name = optional_string(params, "firstName");
+    let last_name = optional_string(params, "lastName");
+    let organization = optional_string(params, "organization");
+    let emails = optional_string_array(params, "emails").unwrap_or_default();
+    let phones = optional_string_array(params, "phones").unwrap_or_default();
     
     if first_name.is_none() && last_name.is_none() && organization.is_none() {
-        return JsonRpcResponse::invalid_params(
+        return invalid_params(
             id,
             "At least one of 'firstName', 'lastName', or 'organization' is required",
         );
     }
     
     match create_contact_native(first_name, last_name, organization, &emails, &phones) {
-        Ok(contact) => JsonRpcResponse::success(
+        Ok(contact) => ok(
             id,
             serde_json::json!({
                 "created": true,
                 "contact": contact,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Update an existing contact
 async fn handle_update(params: &Value, id: Value) -> JsonRpcResponse {
-    let contact_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let contact_id = match require_string(params, "id", &id) {
+        Ok(c) => c,
+        Err(response) => return response,
     };
     
-    let first_name = params.get("firstName").and_then(|v| v.as_str());
-    let last_name = params.get("lastName").and_then(|v| v.as_str());
-    let organization = params.get("organization").and_then(|v| v.as_str());
-    let emails: Option<Vec<String>> = params
-        .get("emails")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-    let phones: Option<Vec<String>> = params
-        .get("phones")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let first_name = optional_string(params, "firstName");
+    let last_name = optional_string(params, "lastName");
+    let organization = optional_string(params, "organization");
+    let emails = optional_string_array(params, "emails");
+    let phones = optional_string_array(params, "phones");
     
     match update_contact_native(contact_id, first_name, last_name, organization, emails.as_deref(), phones.as_deref()) {
-        Ok(contact) => JsonRpcResponse::success(
+        Ok(contact) => ok(
             id,
             serde_json::json!({
                 "updated": true,
                 "contact": contact,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Delete a contact
 async fn handle_delete(params: &Value, id: Value) -> JsonRpcResponse {
-    let contact_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let contact_id = match require_string(params, "id", &id) {
+        Ok(c) => c,
+        Err(response) => return response,
     };
     
     match delete_contact_native(contact_id) {
-        Ok(()) => JsonRpcResponse::success(
+        Ok(()) => ok(
             id,
             serde_json::json!({
                 "deleted": true,
                 "id": contact_id,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
