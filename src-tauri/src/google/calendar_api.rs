@@ -17,13 +17,9 @@ pub struct CalendarApi {
     client: GoogleClient,
 }
 
-impl CalendarApi {
-    /// Create a new Google Calendar API client with an OAuth access token
-    pub fn new(access_token: String) -> Result<Self, String> {
-        let client = GoogleClient::new(access_token)?;
-        Ok(Self { client })
-    }
+super::google_api_wrapper!(CalendarApi);
 
+impl CalendarApi {
     /// List all calendars for the authenticated user
     ///
     /// # Returns

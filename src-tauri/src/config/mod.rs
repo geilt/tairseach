@@ -13,6 +13,34 @@ fn get_openclaw_dir() -> PathBuf {
         .join(".openclaw")
 }
 
+/// Read and deserialize a JSON file, returning a descriptive error on failure.
+fn read_json_file<T: serde::de::DeserializeOwned>(path: &PathBuf, label: &str) -> Result<T, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("Failed to read {}: {}", label, e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse {} JSON: {}", label, e))
+}
+
+/// Write a JSON value to a file, creating a `.bak` backup if the file already exists.
+/// Ensures parent directories exist.
+fn write_json_file_with_backup(path: &PathBuf, value: &impl Serialize, label: &str) -> Result<(), String> {
+    if path.exists() {
+        let backup_path = path.with_extension("json.bak");
+        std::fs::copy(path, &backup_path)
+            .map_err(|e| format!("Failed to create {} backup: {}", label, e))?;
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create {} directory: {}", label, e))?;
+    }
+
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialize {}: {}", label, e))?;
+    std::fs::write(path, content)
+        .map_err(|e| format!("Failed to write {}: {}", label, e))
+}
+
 fn get_openclaw_config_path() -> PathBuf {
     get_openclaw_dir().join("openclaw.json")
 }
@@ -100,11 +128,7 @@ pub async fn get_config() -> Result<OpenClawConfig, String> {
         return Err(format!("Config file not found at {:?}", config_path));
     }
     
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-    
-    let raw: Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
+    let raw: Value = read_json_file(&config_path, "config")?;
     
     Ok(OpenClawConfig {
         raw,
@@ -115,21 +139,7 @@ pub async fn get_config() -> Result<OpenClawConfig, String> {
 #[tauri::command]
 pub async fn set_config(config: Value) -> Result<(), String> {
     let config_path = get_openclaw_config_path();
-    
-    // Backup existing config
-    if config_path.exists() {
-        let backup_path = config_path.with_extension("json.bak");
-        std::fs::copy(&config_path, &backup_path)
-            .map_err(|e| format!("Failed to create backup: {}", e))?;
-    }
-    
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    
-    std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
-    
-    Ok(())
+    write_json_file_with_backup(&config_path, &config, "config")
 }
 
 /// Get available models for known providers
@@ -168,11 +178,7 @@ pub async fn get_google_oauth_config() -> Result<Option<GoogleOAuthConfig>, Stri
         return Ok(None);
     }
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read Google OAuth config: {}", e))?;
-    let config: GoogleOAuthConfig = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse Google OAuth config: {}", e))?;
-
+    let config: GoogleOAuthConfig = read_json_file(&path, "Google OAuth config")?;
     Ok(Some(config))
 }
 
@@ -182,22 +188,14 @@ pub async fn save_google_oauth_config(client_id: String, client_secret: String) 
         return Err("Client ID and Client Secret are required".to_string());
     }
 
-    let dir = get_tairseach_auth_path();
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create auth directory: {}", e))?;
-
     let config = GoogleOAuthConfig {
         client_id: client_id.trim().to_string(),
         client_secret: client_secret.trim().to_string(),
         updated_at: Utc::now().to_rfc3339(),
     };
 
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize Google OAuth config: {}", e))?;
-    std::fs::write(get_google_oauth_config_path(), content)
-        .map_err(|e| format!("Failed to write Google OAuth config: {}", e))?;
-
-    Ok(())
+    let path = get_google_oauth_config_path();
+    write_json_file_with_backup(&path, &config, "Google OAuth config")
 }
 
 #[tauri::command]
@@ -258,10 +256,7 @@ pub async fn get_google_oauth_status() -> Result<GoogleOAuthStatus, String> {
 
     let metadata_path = get_tairseach_auth_path().join("metadata.json");
     if metadata_path.exists() {
-        let metadata_raw = std::fs::read_to_string(&metadata_path)
-            .map_err(|e| format!("Failed to read auth metadata: {}", e))?;
-        let metadata: Value = serde_json::from_str(&metadata_raw)
-            .map_err(|e| format!("Failed to parse auth metadata: {}", e))?;
+        let metadata: Value = read_json_file(&metadata_path, "auth metadata")?;
 
         if let Some(account) = metadata
             .get("accounts")
@@ -358,11 +353,7 @@ pub async fn get_node_config() -> Result<NodeConfig, String> {
         return Err(format!("Node config not found at {:?}", node_path));
     }
     
-    let content = std::fs::read_to_string(&node_path)
-        .map_err(|e| format!("Failed to read node config: {}", e))?;
-    
-    let config: Value = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse node config JSON: {}", e))?;
+    let config: Value = read_json_file(&node_path, "node config")?;
     
     Ok(NodeConfig {
         config,
@@ -373,27 +364,7 @@ pub async fn get_node_config() -> Result<NodeConfig, String> {
 #[tauri::command]
 pub async fn set_node_config(config: Value) -> Result<(), String> {
     let node_path = get_node_config_path();
-    
-    // Backup existing config
-    if node_path.exists() {
-        let backup_path = node_path.with_extension("json.bak");
-        std::fs::copy(&node_path, &backup_path)
-            .map_err(|e| format!("Failed to create backup: {}", e))?;
-    }
-    
-    // Ensure parent directory exists
-    if let Some(parent) = node_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config directory: {}", e))?;
-    }
-    
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize node config: {}", e))?;
-    
-    std::fs::write(&node_path, content)
-        .map_err(|e| format!("Failed to write node config: {}", e))?;
-    
-    Ok(())
+    write_json_file_with_backup(&node_path, &config, "node config")
 }
 
 #[tauri::command]
@@ -401,13 +372,8 @@ pub async fn get_exec_approvals() -> Result<ExecApprovals, String> {
     let approvals_path = get_exec_approvals_path();
     
     let approvals: Value = if approvals_path.exists() {
-        let content = std::fs::read_to_string(&approvals_path)
-            .map_err(|e| format!("Failed to read exec approvals: {}", e))?;
-        
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse exec approvals JSON: {}", e))?
+        read_json_file(&approvals_path, "exec approvals")?
     } else {
-        // Return empty array if file doesn't exist
         serde_json::json!([])
     };
     
@@ -420,27 +386,7 @@ pub async fn get_exec_approvals() -> Result<ExecApprovals, String> {
 #[tauri::command]
 pub async fn set_exec_approvals(approvals: Value) -> Result<(), String> {
     let approvals_path = get_exec_approvals_path();
-    
-    // Backup existing config
-    if approvals_path.exists() {
-        let backup_path = approvals_path.with_extension("json.bak");
-        std::fs::copy(&approvals_path, &backup_path)
-            .map_err(|e| format!("Failed to create backup: {}", e))?;
-    }
-    
-    // Ensure parent directory exists
-    if let Some(parent) = approvals_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config directory: {}", e))?;
-    }
-    
-    let content = serde_json::to_string_pretty(&approvals)
-        .map_err(|e| format!("Failed to serialize exec approvals: {}", e))?;
-    
-    std::fs::write(&approvals_path, content)
-        .map_err(|e| format!("Failed to write exec approvals: {}", e))?;
-    
-    Ok(())
+    write_json_file_with_backup(&approvals_path, &approvals, "exec approvals")
 }
 
 /// Get 1Password configuration
@@ -450,29 +396,17 @@ pub async fn get_onepassword_config() -> Result<Option<OnePasswordConfig>, Strin
         return Ok(None);
     }
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read 1Password config: {}", e))?;
-    let config: OnePasswordConfig = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse 1Password config: {}", e))?;
-
+    let config: OnePasswordConfig = read_json_file(&path, "1Password config")?;
     Ok(Some(config))
 }
 
 /// Save 1Password configuration
 pub async fn save_onepassword_config(default_vault_id: Option<String>) -> Result<(), String> {
-    let dir = get_tairseach_auth_path();
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create auth directory: {}", e))?;
-
     let config = OnePasswordConfig {
         default_vault_id,
         updated_at: Utc::now().to_rfc3339(),
     };
 
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize 1Password config: {}", e))?;
-    std::fs::write(get_onepassword_config_path(), content)
-        .map_err(|e| format!("Failed to write 1Password config: {}", e))?;
-
-    Ok(())
+    let path = get_onepassword_config_path();
+    write_json_file_with_backup(&path, &config, "1Password config")
 }

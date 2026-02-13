@@ -18,13 +18,9 @@ pub struct GmailApi {
     client: GoogleClient,
 }
 
-impl GmailApi {
-    /// Create a new Gmail API client with an OAuth access token
-    pub fn new(access_token: String) -> Result<Self, String> {
-        let client = GoogleClient::new(access_token)?;
-        Ok(Self { client })
-    }
+super::google_api_wrapper!(GmailApi);
 
+impl GmailApi {
     /// List messages matching a query
     ///
     /// # Arguments
