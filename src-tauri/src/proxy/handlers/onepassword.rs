@@ -5,49 +5,20 @@
 use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::sync::OnceCell;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
-use crate::auth::AuthBroker;
-
-/// Global auth broker instance.
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialise the auth broker.
-async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
-    AUTH_BROKER
-        .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
-        })
-        .await
-        .map_err(|e| {
-            error!("Failed to initialise auth broker: {}", e);
-            JsonRpcResponse::error(
-                Value::Null,
-                crate::auth::error_codes::MASTER_KEY_NOT_INITIALIZED,
-                format!("Auth broker init failed: {}", e),
-                None,
-            )
-        })
-}
 
 /// Retrieve the SA token from the auth broker
 async fn get_sa_token(params: &Value) -> Result<String, JsonRpcResponse> {
-    let auth_broker = get_broker().await?;
+    let auth_broker = get_auth_broker().await?;
 
-    let explicit_account = params.get("account").and_then(|v| v.as_str());
+    let explicit_account = optional_string(params, "account");
 
     let mut attempts: Vec<String> = Vec::new();
     if let Some(acct) = explicit_account {
@@ -78,12 +49,10 @@ async fn get_sa_token(params: &Value) -> Result<String, JsonRpcResponse> {
         }
     }
 
-    Err(JsonRpcResponse::error(
+    Err(error(
         Value::Null,
         -32013,
-        "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI."
-            .to_string(),
-        None,
+        "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.",
     ))
 }
 
@@ -198,15 +167,12 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     match action {
-        "status" => JsonRpcResponse::success(
-            id,
-            serde_json::json!({"status": "ok", "backend": "go-helper"}),
-        ),
+        "status" => ok(id, serde_json::json!({"status": "ok", "backend": "go-helper"})),
         "vaults.list" | "vaults_list" => handle_vaults_list(&token, params, id).await,
         "items.list" | "items_list" => handle_items_list(&token, params, id).await,
         "items.get" | "items_get" => handle_items_get(&token, params, id).await,
         "secrets.resolve" => handle_secrets_resolve(&token, params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("op.{}", action)),
+        _ => method_not_found(id, &format!("op.{}", action)),
     }
 }
 
@@ -216,11 +182,11 @@ async fn handle_vaults_list(token: &str, params: &Value, id: Value) -> JsonRpcRe
     match call_op_helper("vaults.list", token, params.clone()).await {
         Ok(result) => {
             debug!("Retrieved vaults via Go helper");
-            JsonRpcResponse::success(id, result)
+            ok(id, result)
         }
         Err(e) => {
             error!("Failed to list vaults: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -230,7 +196,7 @@ async fn handle_items_list(token: &str, params: &Value, id: Value) -> JsonRpcRes
 
     let vault_id = match get_vault_id_with_default(params).await {
         Ok(v) => v,
-        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
+        Err(e) => return invalid_params(id, &e),
     };
 
     let helper_params = serde_json::json!({
@@ -240,11 +206,11 @@ async fn handle_items_list(token: &str, params: &Value, id: Value) -> JsonRpcRes
     match call_op_helper("items.list", token, helper_params).await {
         Ok(result) => {
             debug!("Retrieved items for vault {}", vault_id);
-            JsonRpcResponse::success(id, result)
+            ok(id, result)
         }
         Err(e) => {
             error!("Failed to list items: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -254,16 +220,12 @@ async fn handle_items_get(token: &str, params: &Value, id: Value) -> JsonRpcResp
 
     let vault_id = match get_vault_id_with_default(params).await {
         Ok(v) => v,
-        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
+        Err(e) => return invalid_params(id, &e),
     };
 
-    let item_id = match params
-        .get("item_id")
-        .or_else(|| params.get("itemId"))
-        .and_then(|v| v.as_str())
-    {
-        Some(v) => v,
-        None => return JsonRpcResponse::invalid_params(id, "Missing required parameter: item_id"),
+    let item_id = match require_string_or(params, "item_id", "itemId", &id) {
+        Ok(v) => v,
+        Err(response) => return response,
     };
 
     let helper_params = serde_json::json!({
@@ -272,10 +234,10 @@ async fn handle_items_get(token: &str, params: &Value, id: Value) -> JsonRpcResp
     });
 
     match call_op_helper("items.get", token, helper_params).await {
-        Ok(result) => JsonRpcResponse::success(id, result),
+        Ok(result) => ok(id, result),
         Err(e) => {
             error!("Failed to get item: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -283,9 +245,9 @@ async fn handle_items_get(token: &str, params: &Value, id: Value) -> JsonRpcResp
 async fn handle_secrets_resolve(token: &str, params: &Value, id: Value) -> JsonRpcResponse {
     info!("Handling op.secrets.resolve via Go helper");
 
-    let reference = match params.get("reference").and_then(|v| v.as_str()) {
-        Some(r) => r,
-        None => return JsonRpcResponse::invalid_params(id, "Missing required parameter: reference"),
+    let reference = match require_string(params, "reference", &id) {
+        Ok(r) => r,
+        Err(response) => return response,
     };
 
     let helper_params = serde_json::json!({
@@ -293,10 +255,10 @@ async fn handle_secrets_resolve(token: &str, params: &Value, id: Value) -> JsonR
     });
 
     match call_op_helper("secrets.resolve", token, helper_params).await {
-        Ok(result) => JsonRpcResponse::success(id, result),
+        Ok(result) => ok(id, result),
         Err(e) => {
             error!("Failed to resolve secret: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -304,34 +266,30 @@ async fn handle_secrets_resolve(token: &str, params: &Value, id: Value) -> JsonR
 async fn handle_get_default_vault(id: Value) -> JsonRpcResponse {
     info!("Handling op.config.defaultVault");
     match crate::config::get_onepassword_config().await {
-        Ok(Some(config)) => JsonRpcResponse::success(
+        Ok(Some(config)) => ok(
             id,
             serde_json::json!({
                 "default_vault_id": config.default_vault_id,
             }),
         ),
-        Ok(None) => JsonRpcResponse::success(
+        Ok(None) => ok(
             id,
             serde_json::json!({
                 "default_vault_id": null,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 async fn handle_set_default_vault(params: &Value, id: Value) -> JsonRpcResponse {
     info!("Handling op.vaults.setDefault");
-    let vault_id = params
-        .get("vault_id")
-        .or_else(|| params.get("vaultId"))
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let vault_id = optional_string_or(params, "vault_id", "vaultId").map(String::from);
 
     match crate::config::save_onepassword_config(vault_id.clone()).await {
         Ok(()) => {
             info!("Set default vault to: {:?}", vault_id);
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "default_vault_id": vault_id,
@@ -339,17 +297,13 @@ async fn handle_set_default_vault(params: &Value, id: Value) -> JsonRpcResponse 
                 }),
             )
         }
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Helper to get vault ID from params or fall back to default vault
 async fn get_vault_id_with_default(params: &Value) -> Result<String, String> {
-    if let Some(vault_id) = params
-        .get("vault_id")
-        .or_else(|| params.get("vaultId"))
-        .and_then(|v| v.as_str())
-    {
+    if let Some(vault_id) = optional_string_or(params, "vault_id", "vaultId") {
         return Ok(vault_id.to_string());
     }
 

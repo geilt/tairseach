@@ -9,6 +9,7 @@
 //! All methods use the authenticated GoogleClient with Tier 1 proxy mode.
 
 use super::client::GoogleClient;
+use super::common::extract_array;
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
@@ -152,11 +153,7 @@ impl GmailApi {
         let url = format!("{}/users/me/labels", GMAIL_API_BASE);
         let response = self.client.get(&url, &[]).await?;
 
-        let labels = response
-            .get("labels")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.clone())
-            .unwrap_or_default();
+        let labels = extract_array(&response, "labels");
 
         debug!("Retrieved {} labels", labels.len());
         Ok(labels)

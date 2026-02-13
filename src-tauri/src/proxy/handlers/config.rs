@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Handle config-related methods
