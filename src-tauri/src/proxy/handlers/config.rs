@@ -15,12 +15,12 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     match action {
         "get" => handle_get(params, id).await,
         "set" => handle_set(params, id).await,
-        "environment" => handle_environment(params, id).await,
-        "getNodeConfig" => handle_get_node_config(params, id).await,
+        "environment" => handle_environment(id).await,
+        "getNodeConfig" => handle_get_node_config(id).await,
         "setNodeConfig" => handle_set_node_config(params, id).await,
-        "getExecApprovals" => handle_get_exec_approvals(params, id).await,
+        "getExecApprovals" => handle_get_exec_approvals(id).await,
         "setExecApprovals" => handle_set_exec_approvals(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("config.{}", action)),
+        _ => method_not_found(id, &format!("config.{}", action)),
     }
 }
 
@@ -61,45 +61,26 @@ fn get_exec_approvals_path() -> PathBuf {
 /// Params:
 ///   - section (optional): return only a specific top-level key (e.g. "agents", "gateway")
 async fn handle_get(params: &Value, id: Value) -> JsonRpcResponse {
-    let section = params.get("section").and_then(|v| v.as_str());
+    let section = optional_string(params, "section");
     let config_path = get_config_path();
 
     if !config_path.exists() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Config file not found at {:?}", config_path),
-            None,
-        );
+        return error(id, -32002, format!("Config file not found at {:?}", config_path));
     }
 
     let content = match std::fs::read_to_string(&config_path) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to read config: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to read config: {}", e)),
     };
 
     let config: Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to parse config JSON: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to parse config JSON: {}", e)),
     };
 
     if let Some(key) = section {
         match config.get(key) {
-            Some(section_value) => JsonRpcResponse::success(
+            Some(section_value) => ok(
                 id,
                 serde_json::json!({
                     "section": key,
@@ -107,15 +88,10 @@ async fn handle_get(params: &Value, id: Value) -> JsonRpcResponse {
                     "path": config_path.display().to_string(),
                 }),
             ),
-            None => JsonRpcResponse::error(
-                id,
-                -32002,
-                format!("Config section '{}' not found", key),
-                None,
-            ),
+            None => error(id, -32002, format!("Config section '{}' not found", key)),
         }
     } else {
-        JsonRpcResponse::success(
+        ok(
             id,
             serde_json::json!({
                 "config": config,
@@ -134,17 +110,11 @@ async fn handle_set(params: &Value, id: Value) -> JsonRpcResponse {
     let updates = match params.get("config") {
         Some(c) if c.is_object() => c,
         _ => {
-            return JsonRpcResponse::invalid_params(
-                id,
-                "Missing or invalid 'config' parameter (must be an object)",
-            );
+            return invalid_params(id, "Missing or invalid 'config' parameter (must be an object)");
         }
     };
 
-    let replace = params
-        .get("replace")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let replace = bool_with_default(params, "replace", false);
 
     let config_path = get_config_path();
 
@@ -152,25 +122,11 @@ async fn handle_set(params: &Value, id: Value) -> JsonRpcResponse {
     let existing: Value = if config_path.exists() {
         let content = match std::fs::read_to_string(&config_path) {
             Ok(c) => c,
-            Err(e) => {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Failed to read existing config: {}", e),
-                    None,
-                );
-            }
+            Err(e) => return generic_error(id, format!("Failed to read existing config: {}", e)),
         };
         match serde_json::from_str(&content) {
             Ok(v) => v,
-            Err(e) => {
-                return JsonRpcResponse::error(
-                    id,
-                    -32000,
-                    format!("Failed to parse existing config: {}", e),
-                    None,
-                );
-            }
+            Err(e) => return generic_error(id, format!("Failed to parse existing config: {}", e)),
         }
     } else {
         serde_json::json!({})
@@ -199,20 +155,13 @@ async fn handle_set(params: &Value, id: Value) -> JsonRpcResponse {
     // Write the new config
     let content = match serde_json::to_string_pretty(&new_config) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to serialize config: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to serialize config: {}", e)),
     };
 
     match std::fs::write(&config_path, &content) {
         Ok(()) => {
             info!("Config updated at {:?}", config_path);
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "updated": true,
@@ -221,12 +170,7 @@ async fn handle_set(params: &Value, id: Value) -> JsonRpcResponse {
                 }),
             )
         }
-        Err(e) => JsonRpcResponse::error(
-            id,
-            -32000,
-            format!("Failed to write config: {}", e),
-            None,
-        ),
+        Err(e) => generic_error(id, format!("Failed to write config: {}", e)),
     }
 }
 
@@ -251,7 +195,7 @@ fn merge_json(base: &Value, overlay: &Value) -> Value {
 }
 
 /// `config.environment` — detect gateway vs node environment
-async fn handle_environment(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_environment(id: Value) -> JsonRpcResponse {
     let base = dirs::home_dir()
         .expect("Could not find home directory")
         .join(".openclaw");
@@ -291,7 +235,7 @@ async fn handle_environment(_params: &Value, id: Value) -> JsonRpcResponse {
         }));
     }
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "type": env_type,
@@ -301,43 +245,24 @@ async fn handle_environment(_params: &Value, id: Value) -> JsonRpcResponse {
 }
 
 /// `config.getNodeConfig` — read node.json
-async fn handle_get_node_config(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_get_node_config(id: Value) -> JsonRpcResponse {
     let node_path = get_node_config_path();
     
     if !node_path.exists() {
-        return JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Node config not found at {:?}", node_path),
-            None,
-        );
+        return error(id, -32002, format!("Node config not found at {:?}", node_path));
     }
     
     let content = match std::fs::read_to_string(&node_path) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to read node config: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to read node config: {}", e)),
     };
     
     let config: Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to parse node config JSON: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to parse node config JSON: {}", e)),
     };
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "config": config,
@@ -351,10 +276,7 @@ async fn handle_set_node_config(params: &Value, id: Value) -> JsonRpcResponse {
     let config = match params.get("config") {
         Some(c) if c.is_object() => c,
         _ => {
-            return JsonRpcResponse::invalid_params(
-                id,
-                "Missing or invalid 'config' parameter (must be an object)",
-            );
+            return invalid_params(id, "Missing or invalid 'config' parameter (must be an object)");
         }
     };
     
@@ -375,20 +297,13 @@ async fn handle_set_node_config(params: &Value, id: Value) -> JsonRpcResponse {
     
     let content = match serde_json::to_string_pretty(config) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to serialize node config: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to serialize node config: {}", e)),
     };
     
     match std::fs::write(&node_path, &content) {
         Ok(()) => {
             info!("Node config updated at {:?}", node_path);
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "updated": true,
@@ -396,22 +311,17 @@ async fn handle_set_node_config(params: &Value, id: Value) -> JsonRpcResponse {
                 }),
             )
         }
-        Err(e) => JsonRpcResponse::error(
-            id,
-            -32000,
-            format!("Failed to write node config: {}", e),
-            None,
-        ),
+        Err(e) => generic_error(id, format!("Failed to write node config: {}", e)),
     }
 }
 
 /// `config.getExecApprovals` — read exec-approvals.json
-async fn handle_get_exec_approvals(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_get_exec_approvals(id: Value) -> JsonRpcResponse {
     let approvals_path = get_exec_approvals_path();
     
     if !approvals_path.exists() {
         // Return empty array if file doesn't exist
-        return JsonRpcResponse::success(
+        return ok(
             id,
             serde_json::json!({
                 "approvals": [],
@@ -422,29 +332,15 @@ async fn handle_get_exec_approvals(_params: &Value, id: Value) -> JsonRpcRespons
     
     let content = match std::fs::read_to_string(&approvals_path) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to read exec approvals: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to read exec approvals: {}", e)),
     };
     
     let approvals: Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to parse exec approvals JSON: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to parse exec approvals JSON: {}", e)),
     };
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "approvals": approvals,
@@ -457,12 +353,7 @@ async fn handle_get_exec_approvals(_params: &Value, id: Value) -> JsonRpcRespons
 async fn handle_set_exec_approvals(params: &Value, id: Value) -> JsonRpcResponse {
     let approvals = match params.get("approvals") {
         Some(a) => a,
-        _ => {
-            return JsonRpcResponse::invalid_params(
-                id,
-                "Missing 'approvals' parameter",
-            );
-        }
+        _ => return invalid_params(id, "Missing 'approvals' parameter"),
     };
     
     let approvals_path = get_exec_approvals_path();
@@ -482,20 +373,13 @@ async fn handle_set_exec_approvals(params: &Value, id: Value) -> JsonRpcResponse
     
     let content = match serde_json::to_string_pretty(approvals) {
         Ok(c) => c,
-        Err(e) => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                format!("Failed to serialize exec approvals: {}", e),
-                None,
-            );
-        }
+        Err(e) => return generic_error(id, format!("Failed to serialize exec approvals: {}", e)),
     };
     
     match std::fs::write(&approvals_path, &content) {
         Ok(()) => {
             info!("Exec approvals updated at {:?}", approvals_path);
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "updated": true,
@@ -503,12 +387,7 @@ async fn handle_set_exec_approvals(params: &Value, id: Value) -> JsonRpcResponse
                 }),
             )
         }
-        Err(e) => JsonRpcResponse::error(
-            id,
-            -32000,
-            format!("Failed to write exec approvals: {}", e),
-            None,
-        ),
+        Err(e) => generic_error(id, format!("Failed to write exec approvals: {}", e)),
     }
 }
 
