@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onActivated, onMounted } from 'vue'
 import { useProfilesStore } from '@/stores/profiles'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const store = useProfilesStore()
 
@@ -15,26 +17,14 @@ onActivated(() => {
 
 <template>
   <div class="animate-fade-in">
-    <div class="mb-8">
-      <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2 flex items-center gap-3">
+    <SectionHeader title="Agent Profiles" description="Manage visual identities for your agents.">
+      <template #icon>
         <img src="@/assets/icons/profile-inner.png" alt="Profiles" class="w-8 h-8 object-contain" />
-        Agent Profiles
-      </h1>
-      <p class="text-naonur-ash font-body">
-        Manage visual identities for your agents.
-      </p>
-    </div>
+      </template>
+    </SectionHeader>
 
-    <div class="naonur-card text-center py-12">
-      <img 
-        src="@/assets/icons/profile-inner.png" 
-        alt="Coming Soon"
-        class="w-24 h-24 mx-auto mb-4 object-contain"
-      />
-      <h2 class="font-display text-xl text-naonur-bone mb-2">Coming Soon</h2>
-      <p class="text-naonur-ash">
-        Avatar uploads, colors, and display names
-      </p>
-    </div>
+    <EmptyState title="Coming Soon" message="Avatar uploads, colors, and display names">
+      <img src="@/assets/icons/profile-inner.png" alt="Coming Soon" class="w-24 h-24 mx-auto mb-4 object-contain" />
+    </EmptyState>
   </div>
 </template>

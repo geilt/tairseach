@@ -7,6 +7,10 @@ import ConfigInput from '../components/config/ConfigInput.vue'
 import ConfigSelect from '../components/config/ConfigSelect.vue'
 import AgentCard from '../components/config/AgentCard.vue'
 import ProviderCard from '../components/config/ProviderCard.vue'
+import SectionHeader from '../components/common/SectionHeader.vue'
+import LoadingState from '../components/common/LoadingState.vue'
+import ErrorBanner from '../components/common/ErrorBanner.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 
 const store = useConfigStore()
 const newAgentId = ref('')
@@ -190,21 +194,18 @@ function toggleApproval(approval: ExecApproval) {
 <template>
   <div class="animate-fade-in">
     <!-- Header -->
-    <div class="mb-8 flex items-start justify-between">
-      <div>
-        <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2">
-          ⚙️ Configuration
-        </h1>
-        <p class="text-naonur-ash font-body">
-          Edit OpenClaw gateway configuration.
-        </p>
+    <SectionHeader
+      title="Configuration"
+      icon="⚙️"
+      description="Edit OpenClaw gateway configuration."
+    >
+      <template #meta>
         <p v-if="store.configPath" class="text-xs text-naonur-smoke font-mono mt-1">
           {{ store.configPath }}
         </p>
-      </div>
-      
-      <!-- Save/Revert buttons -->
-      <div class="flex items-center gap-3">
+      </template>
+
+      <template #actions>
         <Transition
           enter-active-class="transition-opacity duration-200"
           enter-from-class="opacity-0"
@@ -221,7 +222,7 @@ function toggleApproval(approval: ExecApproval) {
             {{ saveMessage.text }}
           </span>
         </Transition>
-        
+
         <button
           v-if="store.dirty"
           class="btn btn-ghost text-sm"
@@ -229,7 +230,7 @@ function toggleApproval(approval: ExecApproval) {
         >
           Discard Changes
         </button>
-        
+
         <button
           :class="[
             'btn text-sm',
@@ -241,21 +242,14 @@ function toggleApproval(approval: ExecApproval) {
           <span v-if="store.saving">Saving...</span>
           <span v-else>Save Configuration</span>
         </button>
-      </div>
-    </div>
+      </template>
+    </SectionHeader>
 
     <!-- Loading State -->
-    <div v-if="store.loading" class="naonur-card mb-6 text-center py-8">
-      <p class="text-naonur-ash animate-pulse">Loading configuration...</p>
-    </div>
+    <LoadingState v-if="store.loading" message="Loading configuration..." />
 
     <!-- Error State -->
-    <div v-else-if="store.error" class="naonur-card mb-6 border-red-500/50">
-      <p class="text-red-400">{{ store.error }}</p>
-      <button class="btn btn-secondary mt-4" @click="store.loadConfig()">
-        Retry
-      </button>
-    </div>
+    <ErrorBanner v-else-if="store.error" :message="store.error" @retry="store.loadConfig()" />
 
     <template v-else>
       <!-- Unsaved changes indicator -->
@@ -478,9 +472,7 @@ function toggleApproval(approval: ExecApproval) {
           :badge="customProviders.length"
           :default-open="customProviders.length > 0"
         >
-          <div v-if="customProviders.length === 0" class="text-center py-6 text-naonur-ash">
-            No custom providers configured
-          </div>
+          <EmptyState v-if="customProviders.length === 0" message="No custom providers configured" />
           <div v-else class="space-y-3">
             <ProviderCard
               v-for="{ name, config } in customProviders"
@@ -675,18 +667,6 @@ function toggleApproval(approval: ExecApproval) {
 </template>
 
 <style scoped>
-.btn-primary {
-  @apply bg-naonur-gold text-naonur-void hover:bg-naonur-gold/80;
-}
-
-.btn-ghost {
-  @apply text-naonur-ash hover:text-naonur-bone hover:bg-naonur-fog/20;
-}
-
-.btn-secondary {
-  @apply border border-naonur-fog/50 text-naonur-bone hover:bg-naonur-fog/20;
-}
-
 pre {
   white-space: pre-wrap;
   word-break: break-all;
