@@ -367,28 +367,30 @@ async fn handle_create_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpc
 async fn handle_update_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpcResponse {
     info!("Handling jira.issues.update");
 
-    let issue_key = match params.get("issue_key").or_else(|| params.get("issueKey")).or_else(|| params.get("key")).and_then(|v| v.as_str()) {
+    let issue_key = match optional_string_or(params, "issue_key", "issueKey")
+        .or_else(|| optional_string(params, "key"))
+    {
         Some(k) => k,
         None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: issue_key");
+            return invalid_params(id, "Missing required parameter: issue_key");
         }
     };
 
     let update_data = match params.get("update") {
         Some(v) => v.clone(),
         None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: update");
+            return invalid_params(id, "Missing required parameter: update");
         }
     };
 
     match api.update_issue(issue_key, update_data).await {
         Ok(result) => {
             info!("Issue updated successfully");
-            JsonRpcResponse::success(id, result)
+            ok(id, result)
         }
         Err(e) => {
             error!("Failed to update issue: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -396,18 +398,18 @@ async fn handle_update_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpc
 async fn handle_transition_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpcResponse {
     info!("Handling jira.issues.transition");
 
-    let issue_key = match params.get("issue_key").or_else(|| params.get("issueKey")).or_else(|| params.get("key")).and_then(|v| v.as_str()) {
+    let issue_key = match optional_string_or(params, "issue_key", "issueKey")
+        .or_else(|| optional_string(params, "key"))
+    {
         Some(k) => k,
         None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: issue_key");
+            return invalid_params(id, "Missing required parameter: issue_key");
         }
     };
 
-    let transition_id = match params.get("transition_id").or_else(|| params.get("transitionId")).and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: transition_id");
-        }
+    let transition_id = match require_string_or(params, "transition_id", "transitionId", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
     };
 
     let fields = params.get("fields").cloned();
@@ -415,11 +417,11 @@ async fn handle_transition_issue(params: &Value, id: Value, api: JiraApi) -> Jso
     match api.transition_issue(issue_key, transition_id, fields).await {
         Ok(result) => {
             info!("Issue transitioned successfully");
-            JsonRpcResponse::success(id, result)
+            ok(id, result)
         }
         Err(e) => {
             error!("Failed to transition issue: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -430,11 +432,11 @@ async fn handle_list_projects(id: Value, api: JiraApi) -> JsonRpcResponse {
     match api.list_projects().await {
         Ok(projects) => {
             debug!("Retrieved projects");
-            JsonRpcResponse::success(id, projects)
+            ok(id, projects)
         }
         Err(e) => {
             error!("Failed to list projects: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -442,21 +444,19 @@ async fn handle_list_projects(id: Value, api: JiraApi) -> JsonRpcResponse {
 async fn handle_list_sprints(params: &Value, id: Value, api: JiraApi) -> JsonRpcResponse {
     info!("Handling jira.sprints.list");
 
-    let board_id = match params.get("board_id").or_else(|| params.get("boardId")).and_then(|v| v.as_str()) {
-        Some(b) => b,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: board_id");
-        }
+    let board_id = match require_string_or(params, "board_id", "boardId", &id) {
+        Ok(b) => b,
+        Err(response) => return response,
     };
 
     match api.list_sprints(board_id).await {
         Ok(sprints) => {
             debug!("Retrieved sprints for board {}", board_id);
-            JsonRpcResponse::success(id, sprints)
+            ok(id, sprints)
         }
         Err(e) => {
             error!("Failed to list sprints: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
