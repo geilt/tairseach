@@ -188,10 +188,8 @@ fn resolve_script_path(entrypoint: &str) -> std::path::PathBuf {
             .join(entrypoint.strip_prefix("~/").unwrap())
     } else {
         // Relative to ~/.tairseach/scripts/
-        dirs::home_dir()
-            .unwrap()
-            .join(".tairseach")
-            .join("scripts")
+        crate::common::scripts_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".tairseach/scripts"))
             .join(entrypoint)
     }
 }
@@ -203,41 +201,9 @@ fn build_env_vars(
     let mut env_vars = HashMap::new();
 
     for (key, value_template) in env_template {
-        let value = interpolate_credentials(value_template, credentials);
+        let value = crate::common::interpolate_credentials(value_template, credentials);
         env_vars.insert(key.clone(), value);
     }
 
     env_vars
-}
-
-/// Interpolate credential placeholders in environment variable values
-/// Example: "{credential:google-oauth:access_token}" → "ya29.a0..."
-fn interpolate_credentials(template: &str, credentials: &HashMap<String, Value>) -> String {
-    let mut result = template.to_string();
-
-    // Simple placeholder replacement: {credential:id:field}
-    while let Some(start) = result.find("{credential:") {
-        if let Some(end_pos) = result[start..].find('}') {
-            let end = start + end_pos;
-            let placeholder = &result[start + 12..end];
-            let parts: Vec<&str> = placeholder.split(':').collect();
-
-            if parts.len() == 2 {
-                let (cred_id, field) = (parts[0], parts[1]);
-                if let Some(cred_value) = credentials.get(cred_id) {
-                    if let Some(field_value) = cred_value.get(field).and_then(|v| v.as_str()) {
-                        result.replace_range(start..=end, field_value);
-                        continue;
-                    }
-                }
-            }
-
-            // If interpolation failed, remove placeholder
-            result.replace_range(start..=end, "");
-        } else {
-            break;
-        }
-    }
-
-    result
 }

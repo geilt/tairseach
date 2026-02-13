@@ -124,8 +124,7 @@ pub struct TokenStore {
 impl TokenStore {
     /// Create a new TokenStore, deriving the master key and loading credentials.
     pub async fn new() -> Result<Self, String> {
-        let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let base_dir = home.join(".tairseach");
+        let base_dir = crate::common::tairseach_dir()?;
 
         // Ensure base directory exists
         fs::create_dir_all(&base_dir)

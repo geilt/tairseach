@@ -28,15 +28,14 @@ pub struct ManifestSummary {
 }
 
 fn proxy_log_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join(".tairseach/logs/proxy.log")
+    crate::common::logs_dir()
+        .unwrap_or_else(|_| PathBuf::from(".tairseach/logs"))
+        .join("proxy.log")
 }
 
 fn manifests_root() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join(".tairseach/manifests")
+    crate::common::manifest_dir()
+        .unwrap_or_else(|_| PathBuf::from(".tairseach/manifests"))
 }
 
 fn parse_activity_line(line: &str, fallback_idx: usize) -> ActivityEvent {
@@ -184,9 +183,8 @@ pub async fn get_all_manifests() -> Result<Vec<Manifest>, String> {
 /// Check if the Tairseach socket is alive and responding
 #[tauri::command]
 pub async fn check_socket_alive() -> Result<serde_json::Value, String> {
-    let socket_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join(".tairseach/tairseach.sock");
+    let socket_path = crate::common::socket_path()
+        .unwrap_or_else(|_| PathBuf::from(".tairseach/tairseach.sock"));
 
     if !socket_path.exists() {
         return Ok(serde_json::json!({
@@ -247,9 +245,8 @@ pub async fn test_mcp_tool(
     tool_name: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let socket_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join(".tairseach/tairseach.sock");
+    let socket_path = crate::common::socket_path()
+        .unwrap_or_else(|_| PathBuf::from(".tairseach/tairseach.sock"));
 
     if !socket_path.exists() {
         return Err("Socket file does not exist".to_string());
@@ -304,9 +301,8 @@ pub async fn test_mcp_tool(
 #[tauri::command]
 pub async fn get_namespace_statuses() -> Result<Vec<serde_json::Value>, String> {
     let manifests = get_all_manifests().await?;
-    let socket_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/"))
-        .join(".tairseach/tairseach.sock");
+    let socket_path = crate::common::socket_path()
+        .unwrap_or_else(|_| PathBuf::from(".tairseach/tairseach.sock"));
     
     let mut statuses = Vec::new();
     

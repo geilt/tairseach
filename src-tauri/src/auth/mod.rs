@@ -861,10 +861,7 @@ fn success_html(message: &str) -> String {
 
 /// Fetch user email from Google userinfo endpoint
 async fn fetch_google_email(access_token: &str) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let client = crate::common::create_http_client_with_timeout(10)?;
     
     let response = client
         .get("https://www.googleapis.com/oauth2/v2/userinfo")

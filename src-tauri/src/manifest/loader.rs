@@ -79,10 +79,7 @@ fn load_manifest_file(path: &Path) -> Result<Manifest, String> {
 
 /// Get default manifest directory
 pub fn default_manifest_dir() -> PathBuf {
-    dirs::home_dir()
-        .expect("Could not determine home directory")
-        .join(".tairseach")
-        .join("manifests")
+    crate::common::manifest_dir().expect("Failed to determine manifest directory")
 }
 
 /// Get bundled manifests directory (app bundle)

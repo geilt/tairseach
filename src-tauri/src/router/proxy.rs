@@ -44,7 +44,7 @@ pub async fn dispatch(
     };
 
     // Build URL with path interpolation
-    let path = interpolate_params(&binding.path, params);
+    let path = crate::common::interpolate_params(&binding.path, params);
     let mut url = format!("{}{}", base_url, path);
 
     // Add query parameters
@@ -53,7 +53,7 @@ pub async fn dispatch(
             .query
             .iter()
             .filter_map(|(key, value_template)| {
-                let value = interpolate_params(value_template, params);
+                let value = crate::common::interpolate_params(value_template, params);
                 if !value.is_empty() {
                     Some(format!(
                         "{}={}",
@@ -212,26 +212,6 @@ fn build_auth_header(auth: &ProxyAuth, credentials: &HashMap<String, Value>) -> 
         }
         _ => Err(format!("Unsupported auth strategy: {}", auth.strategy)),
     }
-}
-
-fn interpolate_params(template: &str, params: &Value) -> String {
-    let mut result = template.to_string();
-
-    // Simple interpolation: {field_name} → value
-    if let Some(obj) = params.as_object() {
-        for (key, value) in obj {
-            let placeholder = format!("{{{}}}", key);
-            if let Some(val_str) = value.as_str() {
-                result = result.replace(&placeholder, val_str);
-            } else if let Some(val_num) = value.as_i64() {
-                result = result.replace(&placeholder, &val_num.to_string());
-            } else if let Some(val_bool) = value.as_bool() {
-                result = result.replace(&placeholder, &val_bool.to_string());
-            }
-        }
-    }
-
-    result
 }
 
 fn extract_json_path(value: &Value, path: &str) -> Option<Value> {

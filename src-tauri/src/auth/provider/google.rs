@@ -166,10 +166,7 @@ async fn post_form(
     url: &str,
     params: &HashMap<&str, &str>,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    let client = crate::common::create_http_client()?;
 
     let response = client
         .post(url)

@@ -1,4 +1,5 @@
 mod auth;
+mod common;
 mod config;
 mod google;
 mod manifest;

@@ -17,8 +17,7 @@ use super::ProxyState;
 
 /// Default socket path
 pub fn default_socket_path() -> PathBuf {
-    let home = dirs::home_dir().expect("Could not determine home directory");
-    home.join(".tairseach").join("tairseach.sock")
+    crate::common::socket_path().expect("Failed to determine socket path")
 }
 
 /// Proxy server that listens on a Unix socket
