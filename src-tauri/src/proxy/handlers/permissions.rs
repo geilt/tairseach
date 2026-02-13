@@ -4,6 +4,7 @@
 
 use serde_json::Value;
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 use super::{check_permission_status, PermissionStatus};
 
@@ -28,21 +29,19 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "check" => handle_check(params, id).await,
         "list" => handle_list(id).await,
         "request" => handle_request(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("permissions.{}", action)),
+        _ => method_not_found(id, &format!("permissions.{}", action)),
     }
 }
 
 /// Check status of a specific permission
 async fn handle_check(params: &Value, id: Value) -> JsonRpcResponse {
-    let permission = match params.get("permission").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'permission' parameter");
-        }
+    let permission = match require_string(params, "permission", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
     
     if !ALL_PERMISSIONS.contains(&permission) {
-        return JsonRpcResponse::invalid_params(
+        return invalid_params(
             id,
             format!("Unknown permission: {}. Valid: {:?}", permission, ALL_PERMISSIONS),
         );
@@ -50,7 +49,7 @@ async fn handle_check(params: &Value, id: Value) -> JsonRpcResponse {
     
     let status = check_permission_status(permission).await;
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "permission": permission,
@@ -73,7 +72,7 @@ async fn handle_list(id: Value) -> JsonRpcResponse {
         }));
     }
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "permissions": permissions,
@@ -84,23 +83,18 @@ async fn handle_list(id: Value) -> JsonRpcResponse {
 
 /// Request a permission (triggers UI prompt or opens settings)
 async fn handle_request(params: &Value, id: Value) -> JsonRpcResponse {
-    let permission = match params.get("permission").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'permission' parameter");
-        }
+    let permission = match require_string(params, "permission", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
     
     if !ALL_PERMISSIONS.contains(&permission) {
-        return JsonRpcResponse::invalid_params(
-            id,
-            format!("Unknown permission: {}", permission),
-        );
+        return invalid_params(id, format!("Unknown permission: {}", permission));
     }
     
     // TODO: Call the actual permission request functions from crate::permissions
     // For now, return a placeholder response
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "permission": permission,

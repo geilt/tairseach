@@ -6,6 +6,7 @@
 use serde_json::Value;
 use tracing::error;
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 use crate::auth::{get_or_init_broker, TokenRecord};
 
@@ -15,11 +16,10 @@ async fn get_broker() -> Result<std::sync::Arc<crate::auth::AuthBroker>, JsonRpc
         .await
         .map_err(|e| {
             error!("Failed to initialise auth broker: {}", e);
-            JsonRpcResponse::error(
+            error(
                 Value::Null,
                 crate::auth::error_codes::MASTER_KEY_NOT_INITIALIZED,
                 format!("Auth broker init failed: {}", e),
-                None,
             )
         })
 }
@@ -43,7 +43,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "credentials.get" => handle_get_credential(params, id).await,
         "credentials.list" => handle_list_credentials(params, id).await,
         "credentials.delete" => handle_delete_credential(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("auth.{}", action)),
+        _ => method_not_found(id, &format!("auth.{}", action)),
     }
 }
 
@@ -54,7 +54,7 @@ async fn handle_status(_params: &Value, id: Value) -> JsonRpcResponse {
     match get_broker().await {
         Ok(broker) => {
             let status = broker.status().await;
-            JsonRpcResponse::success(id, serde_json::to_value(status).unwrap_or_default())
+            ok(id, serde_json::to_value(status).unwrap_or_default())
         }
         Err(mut resp) => {
             resp.id = id;
@@ -68,7 +68,7 @@ async fn handle_providers(_params: &Value, id: Value) -> JsonRpcResponse {
     match get_broker().await {
         Ok(broker) => {
             let providers = broker.list_providers();
-            JsonRpcResponse::success(id, serde_json::json!({ "providers": providers }))
+            ok(id, serde_json::json!({ "providers": providers }))
         }
         Err(mut resp) => {
             resp.id = id;
@@ -87,10 +87,10 @@ async fn handle_accounts(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider_filter = params.get("provider").and_then(|v| v.as_str());
+    let provider_filter = optional_string(params, "provider");
     let accounts = broker.list_accounts(provider_filter).await;
 
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "accounts": accounts,
@@ -109,27 +109,24 @@ async fn handle_token(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let account = match params.get("account").and_then(|v| v.as_str()) {
-        Some(a) => a,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'account' parameter"),
+    let account = match require_string(params, "account", &id) {
+        Ok(a) => a,
+        Err(response) => return response,
     };
 
-    let scopes: Option<Vec<String>> = params
-        .get("scopes")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+    let scopes = optional_string_array(params, "scopes");
 
     match broker
         .get_token(provider, account, scopes.as_deref())
         .await
     {
-        Ok(token_info) => JsonRpcResponse::success(id, token_info),
-        Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+        Ok(token_info) => ok(id, token_info),
+        Err((code, msg)) => error(id, code, msg),
     }
 }
 
@@ -143,19 +140,19 @@ async fn handle_refresh(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let account = match params.get("account").and_then(|v| v.as_str()) {
-        Some(a) => a,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'account' parameter"),
+    let account = match require_string(params, "account", &id) {
+        Ok(a) => a,
+        Err(response) => return response,
     };
 
     match broker.force_refresh(provider, account).await {
-        Ok(token_info) => JsonRpcResponse::success(id, token_info),
-        Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+        Ok(token_info) => ok(id, token_info),
+        Err((code, msg)) => error(id, code, msg),
     }
 }
 
@@ -169,19 +166,19 @@ async fn handle_revoke(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let account = match params.get("account").and_then(|v| v.as_str()) {
-        Some(a) => a,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'account' parameter"),
+    let account = match require_string(params, "account", &id) {
+        Ok(a) => a,
+        Err(response) => return response,
     };
 
     match broker.revoke_token(provider, account).await {
-        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
-        Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+        Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err((code, msg)) => error(id, code, msg),
     }
 }
 
@@ -199,7 +196,7 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
     let record: TokenRecord = match serde_json::from_value(params.clone()) {
         Ok(r) => r,
         Err(e) => {
-            return JsonRpcResponse::invalid_params(
+            return invalid_params(
                 id,
                 format!("Invalid token record: {}. Required fields: provider, account, access_token, refresh_token, token_type, expiry, scopes", e),
             )
@@ -209,7 +206,7 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
     // Validation: known providers
     const KNOWN_PROVIDERS: &[&str] = &["google"];
     if !KNOWN_PROVIDERS.contains(&record.provider.as_str()) {
-        return JsonRpcResponse::invalid_params(
+        return invalid_params(
             id,
             format!("Unsupported provider '{}'. Supported: {:?}", record.provider, KNOWN_PROVIDERS),
         );
@@ -217,7 +214,7 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
 
     // Validation: provider "_internal" is reserved
     if record.provider == "_internal" {
-        return JsonRpcResponse::invalid_params(
+        return invalid_params(
             id,
             "Provider '_internal' is reserved for system use and cannot be imported",
         );
@@ -225,30 +222,21 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
 
     // Validation: account must not be empty and must be reasonable length
     if record.account.is_empty() {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Field 'account' must not be empty",
-        );
+        return invalid_params(id, "Field 'account' must not be empty");
     }
 
     if record.account.len() > 256 {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Field 'account' exceeds maximum length of 256 characters",
-        );
+        return invalid_params(id, "Field 'account' exceeds maximum length of 256 characters");
     }
 
     // Validation: access_token must not be empty
     if record.access_token.is_empty() {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Field 'access_token' must not be empty",
-        );
+        return invalid_params(id, "Field 'access_token' must not be empty");
     }
 
     match broker.store_token(record).await {
-        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
-        Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+        Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err((code, msg)) => error(id, code, msg),
     }
 }
 
@@ -263,10 +251,8 @@ async fn handle_gog_passphrase(_params: &Value, id: Value) -> JsonRpcResponse {
     };
 
     match broker.get_gog_passphrase().await {
-        Ok(passphrase) => {
-            JsonRpcResponse::success(id, serde_json::json!({ "passphrase": passphrase }))
-        }
-        Err((code, msg)) => JsonRpcResponse::error(id, code, msg, None),
+        Ok(passphrase) => ok(id, serde_json::json!({ "passphrase": passphrase })),
+        Err((code, msg)) => error(id, code, msg),
     }
 }
 
@@ -283,7 +269,7 @@ async fn handle_credential_types(_params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     let types = broker.list_credential_types().await;
-    JsonRpcResponse::success(id, serde_json::json!({ "types": types }))
+    ok(id, serde_json::json!({ "types": types }))
 }
 
 /// `auth.credential_types.custom.create` — register a custom credential type
@@ -299,7 +285,7 @@ async fn handle_create_custom_type(params: &Value, id: Value) -> JsonRpcResponse
     let schema: crate::auth::credential_types::CredentialTypeSchema = match serde_json::from_value(params.clone()) {
         Ok(s) => s,
         Err(e) => {
-            return JsonRpcResponse::invalid_params(
+            return invalid_params(
                 id,
                 format!("Invalid credential type schema: {}. Required fields: provider_type, display_name, description, fields, supports_multiple", e),
             )
@@ -307,8 +293,8 @@ async fn handle_create_custom_type(params: &Value, id: Value) -> JsonRpcResponse
     };
 
     match broker.register_custom_credential_type(schema).await {
-        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -324,17 +310,17 @@ async fn handle_store_credential(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let cred_type = match params.get("type").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'type' parameter"),
+    let cred_type = match require_string(params, "type", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
     };
 
-    let label = params.get("label").and_then(|v| v.as_str());
+    let label = optional_string(params, "label");
     let account = label.unwrap_or("default");
 
     let fields = match params.get("fields").and_then(|v| v.as_object()) {
@@ -347,15 +333,15 @@ async fn handle_store_credential(params: &Value, id: Value) -> JsonRpcResponse {
             }
             map
         }
-        None => return JsonRpcResponse::invalid_params(id, "Missing or invalid 'fields' parameter"),
+        None => return invalid_params(id, "Missing or invalid 'fields' parameter"),
     };
 
     match broker
         .store_credential(provider, account, cred_type, fields, label)
         .await
     {
-        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -369,16 +355,16 @@ async fn handle_get_credential(params: &Value, id: Value) -> JsonRpcResponse {
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let label = params.get("label").and_then(|v| v.as_str());
+    let label = optional_string(params, "label");
 
     match broker.get_credential(provider, label).await {
-        Ok(fields) => JsonRpcResponse::success(id, serde_json::json!({ "fields": fields })),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(fields) => ok(id, serde_json::json!({ "fields": fields })),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -393,7 +379,7 @@ async fn handle_list_credentials(_params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     let credentials = broker.list_credentials().await;
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "credentials": credentials,
@@ -412,16 +398,16 @@ async fn handle_delete_credential(params: &Value, id: Value) -> JsonRpcResponse 
         }
     };
 
-    let provider = match params.get("provider").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return JsonRpcResponse::invalid_params(id, "Missing 'provider' parameter"),
+    let provider = match require_string(params, "provider", &id) {
+        Ok(p) => p,
+        Err(response) => return response,
     };
 
-    let label = params.get("label").and_then(|v| v.as_str());
+    let label = optional_string(params, "label");
     let account = label.unwrap_or("default");
 
     match broker.delete_credential(provider, account).await {
-        Ok(()) => JsonRpcResponse::success(id, serde_json::json!({ "success": true })),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err(e) => generic_error(id, e),
     }
 }
