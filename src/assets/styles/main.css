@@ -68,6 +68,26 @@
       transparent 100%
     );
   }
+
+  .view-header {
+    @apply mb-8 flex items-start justify-between gap-4;
+  }
+
+  .view-title {
+    @apply mb-2 flex items-center gap-3 font-display text-2xl tracking-wider text-naonur-gold;
+  }
+
+  .view-description {
+    @apply font-body text-naonur-ash;
+  }
+
+  .view-header-actions {
+    @apply flex items-center gap-3;
+  }
+
+  .state-card {
+    @apply w-full;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════

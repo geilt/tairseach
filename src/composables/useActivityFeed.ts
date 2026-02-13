@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { api } from '@/api/tairseach'
 
 export interface ActivityEntry {
   id: string
@@ -88,7 +88,7 @@ export function useActivityFeed(limit = 2000) {
   async function refresh() {
     loading.value = true
     try {
-      const res = await invoke<BackendEvent[]>('get_events', { limit })
+      const res = await api.events.list(limit)
       entries.value = res.map(parseBackendEvent)
       lastUpdated.value = Date.now()
     } finally {

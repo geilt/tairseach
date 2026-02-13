@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useActivityFeed, type ActivityEntry } from '@/composables/useActivityFeed'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 const { entries, namespaces, loading, lastUpdated } = useActivityFeed(4000)
 
@@ -87,13 +90,12 @@ function fmtTime(ts: string) {
 
 <template>
   <section class="animate-fade-in">
-    <div class="mb-6 flex items-center justify-between gap-4">
-      <div>
-        <h1 class="font-display text-2xl tracking-wider text-naonur-gold">Activity Feed</h1>
-        <p class="text-sm text-naonur-ash">Real-time operations from ~/.tairseach/logs/proxy.log</p>
-      </div>
-
-      <div class="flex items-center gap-3">
+    <SectionHeader
+      title="Activity Feed"
+      description="Real-time operations from ~/.tairseach/logs/proxy.log"
+      class="mb-6"
+    >
+      <template #actions>
         <select
           v-model="namespaceInput"
           class="rounded-md border border-naonur-fog bg-naonur-shadow px-3 py-2 text-sm text-naonur-bone"
@@ -101,8 +103,8 @@ function fmtTime(ts: string) {
           <option value="all">All namespaces</option>
           <option v-for="ns in namespaces" :key="ns" :value="ns">{{ ns }}</option>
         </select>
-      </div>
-    </div>
+      </template>
+    </SectionHeader>
 
     <div class="naonur-card activity-card p-0">
       <div class="grid grid-cols-12 gap-2 border-b border-naonur-fog/70 px-4 py-3 text-xs uppercase tracking-wide text-naonur-smoke">
@@ -120,9 +122,13 @@ function fmtTime(ts: string) {
         @mouseenter="isHovering = true"
         @mouseleave="isHovering = false"
       >
-        <div v-if="loading && filteredEntries.length === 0" class="p-5 text-sm text-naonur-ash">Loading activity...</div>
+        <div v-if="loading && filteredEntries.length === 0" class="p-3">
+          <LoadingState message="Loading activity..." />
+        </div>
 
-        <div v-else-if="filteredEntries.length === 0" class="p-5 text-sm text-naonur-smoke">No matching activity.</div>
+        <div v-else-if="filteredEntries.length === 0" class="p-3">
+          <EmptyState message="No matching activity." />
+        </div>
 
         <div v-else :style="{ height: `${totalHeight}px`, position: 'relative' }">
           <div :style="{ transform: `translateY(${topSpacer}px)` }">

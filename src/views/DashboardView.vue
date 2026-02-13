@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { useRouter } from 'vue-router'
+import { api } from '@/api/tairseach'
 import { loadStateCache, saveStateCache } from '@/composables/useStateCache'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 interface ProxyStatus {
   running: boolean
@@ -105,10 +107,10 @@ async function loadDashboard(silent = false) {
   if (!silent) refreshing.value = true
   try {
     const [proxy, permissions, manifests, activity] = await Promise.all([
-      invoke<ProxyStatus>('get_proxy_status'),
-      invoke<Array<{ status: string }>>('check_all_permissions'),
-      invoke<ManifestSummary>('get_manifest_summary'),
-      invoke<ActivityEvent[]>('get_events', { limit: 10 }),
+      api.system.proxyStatus(),
+      api.permissions.all(),
+      api.mcp.manifestSummary(),
+      api.events.list(10),
     ])
 
     proxyStatus.value = proxy
@@ -140,15 +142,17 @@ onActivated(() => {
 
 <template>
   <section class="animate-fade-in">
-    <div class="mb-6 flex items-center justify-between">
-      <div>
-        <h1 class="font-display text-2xl tracking-wider text-naonur-gold">Dashboard</h1>
-        <p class="text-sm text-naonur-ash">System health, manifest posture, and recent activity.</p>
-      </div>
-      <button class="rounded-md border border-naonur-fog px-3 py-2 text-sm hover:bg-naonur-mist" @click="refreshDashboard">
-        {{ refreshing ? 'Refreshing…' : 'Refresh' }}
-      </button>
-    </div>
+    <SectionHeader
+      title="Dashboard"
+      description="System health, manifest posture, and recent activity."
+      class="mb-6"
+    >
+      <template #actions>
+        <button class="rounded-md border border-naonur-fog px-3 py-2 text-sm hover:bg-naonur-mist" @click="refreshDashboard">
+          {{ refreshing ? 'Refreshing…' : 'Refresh' }}
+        </button>
+      </template>
+    </SectionHeader>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
       <article class="naonur-card dashboard-card min-h-[96px]">
@@ -183,7 +187,9 @@ onActivated(() => {
             <p class="truncate text-naonur-bone">{{ item.message }}</p>
             <p class="text-xs text-naonur-smoke">{{ item.source }} · {{ item.timestamp || '—' }}</p>
           </li>
-          <li v-if="recentActivity.length === 0" class="rounded-md border border-naonur-fog/50 px-3 py-2 text-sm text-naonur-ash">No activity yet.</li>
+          <li v-if="recentActivity.length === 0">
+            <EmptyState message="No activity yet." />
+          </li>
         </ul>
       </article>
 

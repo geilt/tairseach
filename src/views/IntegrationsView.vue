@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { useRouter } from 'vue-router'
+import { api } from '@/api/tairseach'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
 
-interface CredentialType {
-  id: string
-  name: string
-  description: string
-  fields: string[]
-}
 
 interface StoredCredential {
   credential_type: string
@@ -18,7 +15,7 @@ interface StoredCredential {
 interface Tool {
   name: string
   description: string
-  inputSchema: Record<string, any>
+  inputSchema: Record<string, unknown>
 }
 
 interface Integration {
@@ -29,7 +26,7 @@ interface Integration {
   credentialType: string
   hasCredentials: boolean
   testTool?: string
-  testParams?: Record<string, any>
+  testParams?: Record<string, unknown>
   tools: Tool[]
 }
 
@@ -40,13 +37,13 @@ const integrations = ref<Integration[]>([])
 const expandedIntegration = ref<string | null>(null)
 const expandedTool = ref<string | null>(null)
 const testingIntegration = ref<string | null>(null)
-const testResults = ref<Record<string, any>>({})
+const testResults = ref<Record<string, unknown>>({})
 const testErrors = ref<Record<string, string>>({})
 
 // Tool tester state
 const selectedToolForTest = ref<{ integration: string; tool: Tool } | null>(null)
 const toolTestParams = ref('{}')
-const toolTestResult = ref<any>(null)
+const toolTestResult = ref<unknown>(null)
 const toolTestError = ref<string | null>(null)
 const toolTestLoading = ref(false)
 
@@ -111,23 +108,11 @@ const INTEGRATION_CONFIGS = [
 ]
 
 /**
- * Load available credential types from backend
- */
-async function loadCredentialTypes(): Promise<CredentialType[]> {
-  try {
-    return await invoke<CredentialType[]>('auth_credential_types')
-  } catch (e) {
-    console.error('Failed to load credential types:', e)
-    return []
-  }
-}
-
-/**
  * Load stored credentials
  */
 async function loadStoredCredentials(): Promise<StoredCredential[]> {
   try {
-    return await invoke<StoredCredential[]>('auth_list_credentials')
+    return await api.auth.listCredentials()
   } catch (e) {
     console.error('Failed to load stored credentials:', e)
     return []
@@ -139,7 +124,7 @@ async function loadStoredCredentials(): Promise<StoredCredential[]> {
  */
 async function loadTools(): Promise<Map<string, Tool[]>> {
   try {
-    const manifests = await invoke<any[]>('get_all_manifests')
+    const manifests = await api.mcp.manifests()
     const toolsByNamespace = new Map<string, Tool[]>()
     
     for (const manifest of manifests) {
@@ -168,8 +153,7 @@ async function loadIntegrations() {
   error.value = null
 
   try {
-    const [_credTypes, storedCreds, toolsByNamespace] = await Promise.all([
-      loadCredentialTypes(),
+    const [storedCreds, toolsByNamespace] = await Promise.all([
       loadStoredCredentials(),
       loadTools()
     ])
@@ -216,10 +200,7 @@ async function testIntegration(integration: Integration) {
   delete testErrors.value[integration.id]
 
   try {
-    const result = await invoke<any>('test_mcp_tool', {
-      toolName: integration.testTool,
-      params: integration.testParams || {}
-    })
+    const result = await api.mcp.testTool(integration.testTool, integration.testParams || {})
 
     requestAnimationFrame(() => {
       testResults.value[integration.id] = result
@@ -277,10 +258,7 @@ async function testTool() {
   try {
     const params = JSON.parse(toolTestParams.value)
 
-    const result = await invoke<any>('test_mcp_tool', {
-      toolName: selectedToolForTest.value.tool.name,
-      params
-    })
+    const result = await api.mcp.testTool(selectedToolForTest.value.tool.name, params)
 
     requestAnimationFrame(() => {
       toolTestResult.value = result
@@ -318,27 +296,17 @@ onMounted(() => {
 <template>
   <div class="animate-fade-in">
     <!-- Header -->
-    <div class="mb-8">
-      <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2">
-        🔗 Integrations
-      </h1>
-      <p class="text-naonur-ash font-body">
-        Connected services and available tools
-      </p>
-    </div>
+    <SectionHeader
+      title="Integrations"
+      icon="🔗"
+      description="Connected services and available tools"
+    />
 
     <!-- Loading State -->
-    <div v-if="loading" class="naonur-card text-center py-8">
-      <p class="text-naonur-ash animate-pulse">Loading integrations...</p>
-    </div>
+    <LoadingState v-if="loading" message="Loading integrations..." />
 
     <!-- Error State -->
-    <div v-else-if="error" class="naonur-card border-red-500/50">
-      <p class="text-red-400 mb-4">{{ error }}</p>
-      <button class="btn btn-secondary" @click="loadIntegrations">
-        Retry
-      </button>
-    </div>
+    <ErrorBanner v-else-if="error" :message="error" @retry="loadIntegrations" />
 
     <template v-else>
       <!-- Summary Stats -->
@@ -545,21 +513,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.btn-primary {
-  @apply bg-naonur-gold text-naonur-void hover:bg-naonur-gold/80 px-4 py-2 rounded-lg transition-colors;
-}
-
-.btn-ghost {
-  @apply text-naonur-ash hover:text-naonur-bone hover:bg-naonur-fog/20 px-3 py-1.5 rounded-lg transition-colors;
-}
-
-.btn-secondary {
-  @apply border border-naonur-fog/50 text-naonur-bone hover:bg-naonur-fog/20 px-4 py-2 rounded-lg transition-colors;
-}
-
-.btn {
-  @apply disabled:opacity-50 disabled:cursor-not-allowed;
-}
 
 /* Animate fade in */
 @keyframes fade-in {

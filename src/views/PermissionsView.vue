@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, onActivated, computed, ref, watch } from 'vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
+import SectionHeader from '../components/common/SectionHeader.vue'
+import LoadingState from '../components/common/LoadingState.vue'
+import ErrorBanner from '../components/common/ErrorBanner.vue'
 import { usePermissionsStore } from '../stores/permissions'
 
 const store = usePermissionsStore()
@@ -94,27 +97,17 @@ function mapStatusForBadge(status: string): 'granted' | 'denied' {
 
 <template>
   <div class="animate-fade-in">
-    <div class="mb-8">
-      <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2">
-        🔐 Permissions
-      </h1>
-      <p class="text-naonur-ash font-body">
-        Manage macOS permissions required by OpenClaw agents.
-      </p>
-    </div>
+    <SectionHeader
+      title="Permissions"
+      icon="🔐"
+      description="Manage macOS permissions required by OpenClaw agents."
+    />
 
     <!-- Initial Loading State (only when we have nothing to show yet) -->
-    <div v-if="isInitialLoading" class="naonur-card mb-6 text-center py-8">
-      <p class="text-naonur-ash animate-pulse">Checking permissions...</p>
-    </div>
+    <LoadingState v-if="isInitialLoading" message="Checking permissions..." />
 
     <!-- Error State -->
-    <div v-else-if="store.error" class="naonur-card mb-6 border-red-500/50">
-      <p class="text-red-400">{{ store.error }}</p>
-      <button class="btn btn-secondary mt-4" @click="store.loadPermissions()">
-        Retry
-      </button>
-    </div>
+    <ErrorBanner v-else-if="store.error" :message="store.error" @retry="store.loadPermissions()" />
 
     <template v-else>
       <!-- Status Summary -->

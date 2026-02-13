@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { loadStateCache, saveStateCache } from '@/composables/useStateCache'
+import { api } from '@/api/tairseach'
 
 export interface AgentConfig {
   id: string
@@ -171,7 +171,7 @@ export const useConfigStore = defineStore('config', () => {
     if (!silent) loading.value = true
     error.value = null
     try {
-      const result = await invoke<{ raw: OpenClawConfig; path: string }>('get_config')
+      const result = await api.config.get()
       config.value = result.raw
       configPath.value = result.path
       originalConfig.value = JSON.stringify(result.raw)
@@ -186,7 +186,7 @@ export const useConfigStore = defineStore('config', () => {
 
   async function loadProviderModels(_opts: { silent?: boolean } = {}) {
     try {
-      providerModels.value = await invoke<Record<string, ModelOption[]>>('get_provider_models')
+      providerModels.value = await api.config.providerModels()
       persistCache()
     } catch (e) {
       console.error('Failed to load provider models:', e)
@@ -195,7 +195,7 @@ export const useConfigStore = defineStore('config', () => {
 
   async function loadEnvironment(_opts: { silent?: boolean } = {}) {
     try {
-      environment.value = await invoke<EnvironmentInfo>('get_environment')
+      environment.value = await api.config.environment()
       
       // Load node-specific config if we're on a node
       if (environment.value.type === 'node') {
@@ -216,7 +216,7 @@ export const useConfigStore = defineStore('config', () => {
     if (!silent) loading.value = true
     error.value = null
     try {
-      const result = await invoke<{ config: NodeConfig; path: string }>('get_node_config')
+      const result = await api.config.getNodeConfig()
       nodeConfig.value = result.config
       originalNodeConfig.value = JSON.stringify(result.config)
       persistCache()
@@ -230,7 +230,7 @@ export const useConfigStore = defineStore('config', () => {
 
   async function loadExecApprovals(_opts: { silent?: boolean } = {}) {
     try {
-      const result = await invoke<{ approvals: ExecApproval[]; path: string }>('get_exec_approvals')
+      const result = await api.config.getExecApprovals()
       execApprovals.value = Array.isArray(result.approvals) ? result.approvals : []
       originalExecApprovals.value = JSON.stringify(execApprovals.value)
       persistCache()
@@ -249,19 +249,19 @@ export const useConfigStore = defineStore('config', () => {
           ...config.value,
           meta: { ...config.value.meta, lastTouchedAt: new Date().toISOString() },
         }
-        await invoke('set_config', { config: config.value })
+        await api.config.set(config.value)
         originalConfig.value = JSON.stringify(config.value)
       }
       
       // Save node config if it's changed
       if (nodeConfig.value && JSON.stringify(nodeConfig.value) !== originalNodeConfig.value) {
-        await invoke('set_node_config', { config: nodeConfig.value })
+        await api.config.setNodeConfig(nodeConfig.value)
         originalNodeConfig.value = JSON.stringify(nodeConfig.value)
       }
       
       // Save exec approvals if they've changed
       if (JSON.stringify(execApprovals.value) !== originalExecApprovals.value) {
-        await invoke('set_exec_approvals', { approvals: execApprovals.value })
+        await api.config.setExecApprovals(execApprovals.value)
         originalExecApprovals.value = JSON.stringify(execApprovals.value)
       }
       
