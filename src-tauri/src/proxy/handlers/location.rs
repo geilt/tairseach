@@ -6,6 +6,7 @@
 use serde_json::Value;
 use tracing::info;
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Handle location-related methods
@@ -13,30 +14,26 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     match action {
         "get" => handle_get(params, id).await,
         "watch" => handle_watch(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("location.{}", action)),
+        _ => method_not_found(id, &format!("location.{}", action)),
     }
 }
 
 /// Get the current location
 async fn handle_get(params: &Value, id: Value) -> JsonRpcResponse {
-    let timeout_secs = params
-        .get("timeout")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10);
+    let timeout_secs = u64_with_default(params, "timeout", 10);
 
     match get_current_location(timeout_secs).await {
-        Ok(loc) => JsonRpcResponse::success(id, loc),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(loc) => ok(id, loc),
+        Err(e) => generic_error(id, e),
     }
 }
 
 /// Watch for location updates (single-shot with subscription stub)
 async fn handle_watch(_params: &Value, id: Value) -> JsonRpcResponse {
-    JsonRpcResponse::error(
+    error(
         id,
         -32001,
         "location.watch requires a streaming connection, not yet supported. Use location.get instead.",
-        None,
     )
 }
 

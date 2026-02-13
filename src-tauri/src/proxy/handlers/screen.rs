@@ -6,6 +6,7 @@
 use serde_json::Value;
 use tracing::{error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Handle screen-related methods
@@ -13,7 +14,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     match action {
         "capture" => handle_capture(params, id).await,
         "windows" => handle_windows(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("screen.{}", action)),
+        _ => method_not_found(id, &format!("screen.{}", action)),
     }
 }
 
@@ -26,23 +27,17 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 ///
 /// Returns the path to the saved screenshot and base64-encoded data
 async fn handle_capture(params: &Value, id: Value) -> JsonRpcResponse {
-    let display_idx = params.get("display").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-    let img_format = params
-        .get("format")
-        .and_then(|v| v.as_str())
-        .unwrap_or("png");
-    let save_path = params.get("path").and_then(|v| v.as_str());
+    let display_idx = u64_with_default(params, "display", 0) as u32;
+    let img_format = string_with_default(params, "format", "png");
+    let save_path = optional_string(params, "path");
 
     if img_format != "png" && img_format != "jpg" && img_format != "jpeg" {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Invalid format. Use 'png' or 'jpg'.",
-        );
+        return invalid_params(id, "Invalid format. Use 'png' or 'jpg'.");
     }
 
     match capture_screen(display_idx, img_format, save_path).await {
-        Ok(result) => JsonRpcResponse::success(id, result),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Ok(result) => ok(id, result),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -51,14 +46,14 @@ async fn handle_capture(params: &Value, id: Value) -> JsonRpcResponse {
 /// Returns a list of windows with their title, owner, bounds, and window ID.
 async fn handle_windows(_params: &Value, id: Value) -> JsonRpcResponse {
     match list_windows().await {
-        Ok(windows) => JsonRpcResponse::success(
+        Ok(windows) => ok(
             id,
             serde_json::json!({
                 "windows": windows,
                 "count": windows.as_array().map(|a| a.len()).unwrap_or(0),
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
