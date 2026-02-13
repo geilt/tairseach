@@ -7,17 +7,13 @@
 //!
 //! All methods use the authenticated GoogleClient with Tier 1 proxy mode.
 
-use super::client::GoogleClient;
+use super::common::{extract_array, google_api_wrapper};
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
 const CALENDAR_API_BASE: &str = "https://www.googleapis.com/calendar/v3";
 
-pub struct CalendarApi {
-    client: GoogleClient,
-}
-
-super::google_api_wrapper!(CalendarApi);
+google_api_wrapper!(CalendarApi);
 
 impl CalendarApi {
     /// List all calendars for the authenticated user
@@ -30,11 +26,7 @@ impl CalendarApi {
         let url = format!("{}/users/me/calendarList", CALENDAR_API_BASE);
         let response = self.client.get(&url, &[]).await?;
 
-        let calendars = response
-            .get("items")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.clone())
-            .unwrap_or_default();
+        let calendars = extract_array(&response, "items");
 
         debug!("Retrieved {} calendars", calendars.len());
         Ok(calendars)
@@ -226,9 +218,7 @@ mod tests {
 
     #[test]
     fn test_parse_datetime_with_timestamp() {
-        let api = CalendarApi {
-            client: GoogleClient::new("test".to_string()).unwrap(),
-        };
+        let api = CalendarApi::new("test".to_string()).unwrap();
 
         let result = api.parse_datetime("2026-02-08T15:00:00Z");
         assert!(result.get("dateTime").is_some());
@@ -237,9 +227,7 @@ mod tests {
 
     #[test]
     fn test_parse_datetime_with_date_only() {
-        let api = CalendarApi {
-            client: GoogleClient::new("test".to_string()).unwrap(),
-        };
+        let api = CalendarApi::new("test".to_string()).unwrap();
 
         let result = api.parse_datetime("2026-02-08");
         assert!(result.get("date").is_some());

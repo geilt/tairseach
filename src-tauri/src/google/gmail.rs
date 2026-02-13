@@ -8,17 +8,13 @@
 //!
 //! All methods use the authenticated GoogleClient with Tier 1 proxy mode.
 
-use super::client::GoogleClient;
+use super::common::{extract_array, google_api_wrapper};
 use serde_json::{json, Value};
 use tracing::{debug, info};
 
 const GMAIL_API_BASE: &str = "https://gmail.googleapis.com/gmail/v1";
 
-pub struct GmailApi {
-    client: GoogleClient,
-}
-
-super::google_api_wrapper!(GmailApi);
+google_api_wrapper!(GmailApi);
 
 impl GmailApi {
     /// List messages matching a query
@@ -152,11 +148,7 @@ impl GmailApi {
         let url = format!("{}/users/me/labels", GMAIL_API_BASE);
         let response = self.client.get(&url, &[]).await?;
 
-        let labels = response
-            .get("labels")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.clone())
-            .unwrap_or_default();
+        let labels = extract_array(&response, "labels");
 
         debug!("Retrieved {} labels", labels.len());
         Ok(labels)
