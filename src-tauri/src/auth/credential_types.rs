@@ -71,6 +71,7 @@ impl CredentialTypeRegistry {
         registry.register_built_in(Self::linear_schema());
         registry.register_built_in(Self::notion_schema());
         registry.register_built_in(Self::slack_schema());
+        registry.register_built_in(Self::godaddy_schema());
         
         registry
     }
@@ -261,6 +262,31 @@ impl CredentialTypeRegistry {
                     field_type: FieldType::String,
                     required: false,
                     description: Some("Workspace name or ID (optional)".to_string()),
+                },
+            ],
+            supports_multiple: true,
+            built_in: false,
+        }
+    }
+    fn godaddy_schema() -> CredentialTypeSchema {
+        CredentialTypeSchema {
+            provider_type: "godaddy".to_string(),
+            display_name: "GoDaddy".to_string(),
+            description: "GoDaddy API credentials for domain management".to_string(),
+            fields: vec![
+                CredentialField {
+                    name: "api_key".to_string(),
+                    display_name: "API Key".to_string(),
+                    field_type: FieldType::Secret,
+                    required: true,
+                    description: Some("API key from GoDaddy Developer Portal".to_string()),
+                },
+                CredentialField {
+                    name: "api_secret".to_string(),
+                    display_name: "API Secret".to_string(),
+                    field_type: FieldType::Secret,
+                    required: true,
+                    description: Some("API secret from GoDaddy Developer Portal".to_string()),
                 },
             ],
             supports_multiple: true,
