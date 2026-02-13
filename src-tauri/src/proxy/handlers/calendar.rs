@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Calendar representation
@@ -54,7 +55,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 async fn handle_list_calendars(_params: &Value, id: Value) -> JsonRpcResponse {
     let calendars = fetch_calendars().await;
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "calendars": calendars,
@@ -65,20 +66,19 @@ async fn handle_list_calendars(_params: &Value, id: Value) -> JsonRpcResponse {
 
 /// List events in a date range
 async fn handle_list_events(params: &Value, id: Value) -> JsonRpcResponse {
-    let start = params.get("start").and_then(|v| v.as_str()).unwrap_or("");
-    let end = params.get("end").and_then(|v| v.as_str()).unwrap_or("");
-    let calendar_id = params.get("calendarId").and_then(|v| v.as_str());
-    
-    if start.is_empty() || end.is_empty() {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Missing 'start' and/or 'end' date parameters (ISO 8601 format)",
-        );
-    }
+    let start = match require_string(params, "start", &id) {
+        Ok(s) => s,
+        Err(response) => return response,
+    };
+    let end = match require_string(params, "end", &id) {
+        Ok(e) => e,
+        Err(response) => return response,
+    };
+    let calendar_id = optional_string(params, "calendarId");
     
     let events = fetch_events(start, end, calendar_id).await;
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "events": events,
@@ -91,75 +91,57 @@ async fn handle_list_events(params: &Value, id: Value) -> JsonRpcResponse {
 
 /// Get a specific event by ID
 async fn handle_get_event(params: &Value, id: Value) -> JsonRpcResponse {
-    let event_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let event_id = match require_string(params, "id", &id) {
+        Ok(e) => e,
+        Err(response) => return response,
     };
     
     match fetch_event_by_id(event_id).await {
-        Some(event) => JsonRpcResponse::success(id, serde_json::to_value(event).unwrap_or_default()),
-        None => JsonRpcResponse::error(
-            id,
-            -32002,
-            format!("Event not found: {}", event_id),
-            None,
-        ),
+        Some(event) => ok(id, serde_json::to_value(event).unwrap_or_default()),
+        None => error(id, -32002, format!("Event not found: {}", event_id)),
     }
 }
 
 /// Create a new event
 async fn handle_create_event(params: &Value, id: Value) -> JsonRpcResponse {
-    let title = match params.get("title").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'title' parameter");
-        }
+    let title = match require_string(params, "title", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
     };
-    
-    let start = match params.get("start").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'start' parameter");
-        }
+    let start = match require_string(params, "start", &id) {
+        Ok(s) => s,
+        Err(response) => return response,
     };
-    
-    let end = match params.get("end").and_then(|v| v.as_str()) {
-        Some(e) => e,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'end' parameter");
-        }
+    let end = match require_string(params, "end", &id) {
+        Ok(e) => e,
+        Err(response) => return response,
     };
-    
-    let calendar_id = params.get("calendarId").and_then(|v| v.as_str());
-    let location = params.get("location").and_then(|v| v.as_str());
-    let notes = params.get("notes").and_then(|v| v.as_str());
-    let is_all_day = params.get("isAllDay").and_then(|v| v.as_bool()).unwrap_or(false);
+    let calendar_id = optional_string(params, "calendarId");
+    let location = optional_string(params, "location");
+    let notes = optional_string(params, "notes");
+    let is_all_day = bool_with_default(params, "isAllDay", false);
     
     match create_event(title, start, end, calendar_id, location, notes, is_all_day).await {
-        Some(event) => JsonRpcResponse::success(
+        Some(event) => ok(
             id,
             serde_json::json!({
                 "created": true,
                 "event": event,
             }),
         ),
-        None => JsonRpcResponse::error(id, -32003, "Failed to create event", None),
+        None => error(id, -32003, "Failed to create event"),
     }
 }
 
 /// Update an existing event
 async fn handle_update_event(params: &Value, id: Value) -> JsonRpcResponse {
-    let event_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let event_id = match require_string(params, "id", &id) {
+        Ok(e) => e,
+        Err(response) => return response,
     };
     
     // For now, just return success - actual implementation would update the event
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "updated": true,
@@ -171,15 +153,13 @@ async fn handle_update_event(params: &Value, id: Value) -> JsonRpcResponse {
 
 /// Delete an event
 async fn handle_delete_event(params: &Value, id: Value) -> JsonRpcResponse {
-    let event_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let event_id = match require_string(params, "id", &id) {
+        Ok(e) => e,
+        Err(response) => return response,
     };
     
     // For now, just return success - actual implementation would delete the event
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "deleted": true,
