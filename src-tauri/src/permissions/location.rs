@@ -1,95 +1,54 @@
 //! Location Permission (CoreLocation)
-//!
-//! Uses native Objective-C bindings to check and request location access.
-//! This ensures Tairseach (not osascript) is registered for the permission.
 
-use super::{Permission, PermissionError, PermissionStatus};
+use super::{Permission, PermissionError};
 
 #[cfg(target_os = "macos")]
-use objc2_core_location::CLLocationManager;
-#[cfg(target_os = "macos")]
-use std::time::Duration;
+mod native {
+    use super::super::{status_from_raw, Permission, PermissionError, PermissionStatus};
+    use objc2_core_location::CLLocationManager;
+    use std::time::Duration;
 
-/// Check Location permission status using native API
-#[cfg(target_os = "macos")]
-#[allow(deprecated)]
-pub fn check() -> Result<Permission, PermissionError> {
-    let status = unsafe {
-        let manager = CLLocationManager::new();
-
-        // Check if location services are enabled
-        let services_enabled = manager.locationServicesEnabled();
-
-        if !services_enabled {
-            PermissionStatus::Denied
-        } else {
-            // Get authorization status (instance method)
-            let raw_status = manager.authorizationStatus();
-            
-            match raw_status.0 {
-                0 => PermissionStatus::NotDetermined,
-                1 => PermissionStatus::Restricted,
-                2 => PermissionStatus::Denied,
-                3 => PermissionStatus::Granted,  // AuthorizedAlways
-                4 => PermissionStatus::Granted,  // AuthorizedWhenInUse
-                _ => PermissionStatus::Unknown,
+    #[allow(deprecated)]
+    pub fn check() -> Result<Permission, PermissionError> {
+        let status = unsafe {
+            let manager = CLLocationManager::new();
+            if !manager.locationServicesEnabled() {
+                PermissionStatus::Denied
+            } else {
+                status_from_raw(manager.authorizationStatus().0 as isize)
             }
-        }
-    };
-
-    Ok(Permission::new(
-        "location",
-        "Location",
-        "Access to determine your geographic location",
-        status,
-        false,
-    ))
-}
-
-/// Trigger registration by requesting access
-#[cfg(target_os = "macos")]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    tracing::info!("Triggering location permission via native CLLocationManager...");
-    
-    let manager = unsafe { CLLocationManager::new() };
-    
-    tracing::info!("Calling requestWhenInUseAuthorization...");
-    unsafe {
-        manager.requestWhenInUseAuthorization();
+        };
+        Ok(Permission::new("location", "Location", "Access to determine your geographic location", status, false))
     }
-    
-    // Give macOS time to show the dialog
-    std::thread::sleep(Duration::from_millis(500));
-    
-    tracing::info!("Location registration trigger complete");
-    Ok(())
+
+    pub fn trigger_registration() -> Result<(), PermissionError> {
+        tracing::info!("Triggering location permission via native CLLocationManager...");
+        let manager = unsafe { CLLocationManager::new() };
+        unsafe { manager.requestWhenInUseAuthorization(); }
+        std::thread::sleep(Duration::from_millis(500));
+        tracing::info!("Location registration trigger complete");
+        Ok(())
+    }
 }
+
+#[cfg(target_os = "macos")]
+pub fn check() -> Result<Permission, PermissionError> { native::check() }
+#[cfg(target_os = "macos")]
+pub fn trigger_registration() -> Result<(), PermissionError> { native::trigger_registration() }
 
 #[cfg(not(target_os = "macos"))]
 pub fn check() -> Result<Permission, PermissionError> {
-    Ok(Permission::new(
-        "location",
-        "Location",
-        "Access to determine your geographic location",
-        PermissionStatus::Unknown,
-        false,
-    ))
+    super::non_macos_permission("location", "Location", "Access to determine your geographic location", false)
 }
-
 #[cfg(not(target_os = "macos"))]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    Err(PermissionError::CheckFailed("Not supported on this platform".to_string()))
-}
+pub fn trigger_registration() -> Result<(), PermissionError> { super::non_macos_trigger() }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_check_returns_permission() {
-        let result = check();
-        assert!(result.is_ok());
-        let perm = result.unwrap();
+        let perm = check().unwrap();
         assert_eq!(perm.id, "location");
     }
 }

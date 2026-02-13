@@ -1,110 +1,58 @@
 //! Microphone Permission (AVFoundation)
-//!
-//! Uses native Objective-C bindings to check and request microphone access.
-//! This ensures Tairseach (not osascript) is registered for the permission.
 
-use super::{Permission, PermissionError, PermissionStatus};
+use super::{Permission, PermissionError};
 
 #[cfg(target_os = "macos")]
-use objc2::runtime::Bool;
-#[cfg(target_os = "macos")]
-use objc2_av_foundation::AVCaptureDevice;
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSString;
-#[cfg(target_os = "macos")]
-use block2::RcBlock;
-#[cfg(target_os = "macos")]
-use std::sync::{Arc, Mutex, Condvar};
-#[cfg(target_os = "macos")]
-use std::time::Duration;
+mod native {
+    use super::super::{callback_pair, signal_callback, status_from_raw, wait_for_callback, Permission, PermissionError};
+    use objc2::runtime::Bool;
+    use objc2_av_foundation::AVCaptureDevice;
+    use objc2_foundation::NSString;
+    use block2::RcBlock;
 
-/// Check Microphone permission status using native API
-#[cfg(target_os = "macos")]
-pub fn check() -> Result<Permission, PermissionError> {
-    let status = unsafe {
-        // AVMediaTypeAudio = "soun"
-        let media_type = NSString::from_str("soun");
-        let raw_status = AVCaptureDevice::authorizationStatusForMediaType(&media_type);
-        
-        match raw_status.0 {
-            0 => PermissionStatus::NotDetermined,
-            1 => PermissionStatus::Restricted,
-            2 => PermissionStatus::Denied,
-            3 => PermissionStatus::Granted,
-            _ => PermissionStatus::Unknown,
+    const MEDIA_TYPE: &str = "soun"; // AVMediaTypeAudio
+
+    pub fn check() -> Result<Permission, PermissionError> {
+        let status = unsafe {
+            let media_type = NSString::from_str(MEDIA_TYPE);
+            status_from_raw(AVCaptureDevice::authorizationStatusForMediaType(&media_type).0)
+        };
+        Ok(Permission::new("microphone", "Microphone", "Access to use the microphone for audio input", status, false))
+    }
+
+    pub fn trigger_registration() -> Result<(), PermissionError> {
+        tracing::info!("Triggering microphone permission via native AVCaptureDevice...");
+        let pair = callback_pair();
+        let pair_clone = pair.clone();
+        let block = RcBlock::new(move |_granted: Bool| { signal_callback(&pair_clone); });
+        unsafe {
+            let media_type = NSString::from_str(MEDIA_TYPE);
+            AVCaptureDevice::requestAccessForMediaType_completionHandler(&media_type, &block);
         }
-    };
-
-    Ok(Permission::new(
-        "microphone",
-        "Microphone",
-        "Access to use the microphone for audio input",
-        status,
-        false,
-    ))
+        wait_for_callback(&pair);
+        tracing::info!("Microphone registration trigger complete");
+        Ok(())
+    }
 }
 
-/// Trigger registration by requesting access
 #[cfg(target_os = "macos")]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    tracing::info!("Triggering microphone permission via native AVCaptureDevice...");
-    
-    let pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let pair_clone = pair.clone();
-    
-    let block = RcBlock::new(move |granted: Bool| {
-        let granted_bool = granted.as_bool();
-        tracing::info!("Microphone permission callback: granted={}", granted_bool);
-        
-        let (lock, cvar) = &*pair_clone;
-        if let Ok(mut done) = lock.lock() {
-            *done = true;
-            cvar.notify_one();
-        }
-    });
-    
-    tracing::info!("Calling requestAccessForMediaType for audio...");
-    unsafe {
-        // AVMediaTypeAudio = "soun"
-        let media_type = NSString::from_str("soun");
-        AVCaptureDevice::requestAccessForMediaType_completionHandler(&media_type, &block);
-    }
-    tracing::info!("Request sent, waiting for response...");
-    
-    let (lock, cvar) = &*pair;
-    if let Ok(guard) = lock.lock() {
-        let _ = cvar.wait_timeout(guard, Duration::from_secs(30));
-    }
-    
-    tracing::info!("Microphone registration trigger complete");
-    Ok(())
-}
+pub fn check() -> Result<Permission, PermissionError> { native::check() }
+#[cfg(target_os = "macos")]
+pub fn trigger_registration() -> Result<(), PermissionError> { native::trigger_registration() }
 
 #[cfg(not(target_os = "macos"))]
 pub fn check() -> Result<Permission, PermissionError> {
-    Ok(Permission::new(
-        "microphone",
-        "Microphone",
-        "Access to use the microphone for audio input",
-        PermissionStatus::Unknown,
-        false,
-    ))
+    super::non_macos_permission("microphone", "Microphone", "Access to use the microphone for audio input", false)
 }
-
 #[cfg(not(target_os = "macos"))]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    Err(PermissionError::CheckFailed("Not supported on this platform".to_string()))
-}
+pub fn trigger_registration() -> Result<(), PermissionError> { super::non_macos_trigger() }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_check_returns_permission() {
-        let result = check();
-        assert!(result.is_ok());
-        let perm = result.unwrap();
+        let perm = check().unwrap();
         assert_eq!(perm.id, "microphone");
     }
 }

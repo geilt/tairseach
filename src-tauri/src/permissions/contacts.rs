@@ -1,123 +1,55 @@
 //! Contacts Permission (CNContactStore)
-//!
-//! Uses native Objective-C bindings to check and request contacts access.
-//! This ensures Tairseach (not osascript) is registered for the permission.
 
-use super::{Permission, PermissionError, PermissionStatus};
+use super::{Permission, PermissionError};
 
 #[cfg(target_os = "macos")]
-use objc2::runtime::Bool;
-#[cfg(target_os = "macos")]
-use objc2_contacts::{CNContactStore, CNEntityType};
-#[cfg(target_os = "macos")]
-use objc2_foundation::NSError;
-#[cfg(target_os = "macos")]
-use block2::StackBlock;
-#[cfg(target_os = "macos")]
-use std::sync::{Arc, Mutex, Condvar};
-#[cfg(target_os = "macos")]
-use std::time::Duration;
+mod native {
+    use super::super::{callback_pair, signal_callback, status_from_raw, wait_for_callback, Permission, PermissionError};
+    use objc2::runtime::Bool;
+    use objc2_contacts::{CNContactStore, CNEntityType};
+    use objc2_foundation::NSError;
+    use block2::StackBlock;
 
-/// Check Contacts permission status using native API
-#[cfg(target_os = "macos")]
-pub fn check() -> Result<Permission, PermissionError> {
-    let status = unsafe {
-        let entity_type = CNEntityType(0); // CNEntityTypeContacts
-        let raw_status = CNContactStore::authorizationStatusForEntityType(entity_type);
-        
-        // CNAuthorizationStatus is a newtype around isize
-        match raw_status.0 {
-            0 => PermissionStatus::NotDetermined,  // CNAuthorizationStatusNotDetermined
-            1 => PermissionStatus::Restricted,     // CNAuthorizationStatusRestricted
-            2 => PermissionStatus::Denied,         // CNAuthorizationStatusDenied
-            3 => PermissionStatus::Granted,        // CNAuthorizationStatusAuthorized
-            _ => PermissionStatus::Unknown,
-        }
-    };
+    pub fn check() -> Result<Permission, PermissionError> {
+        let status = unsafe {
+            let entity_type = CNEntityType(0); // CNEntityTypeContacts
+            status_from_raw(CNContactStore::authorizationStatusForEntityType(entity_type).0)
+        };
+        Ok(Permission::new("contacts", "Contacts", "Access to read and modify your contacts", status, true))
+    }
 
-    Ok(Permission::new(
-        "contacts",
-        "Contacts",
-        "Access to read and modify your contacts",
-        status,
-        true,
-    ))
+    pub fn trigger_registration() -> Result<(), PermissionError> {
+        tracing::info!("Triggering contacts permission via native CNContactStore...");
+        let store = unsafe { CNContactStore::new() };
+        let pair = callback_pair();
+        let pair_clone = pair.clone();
+        let block = StackBlock::new(move |_granted: Bool, _error: *mut NSError| { signal_callback(&pair_clone); });
+        let entity_type = CNEntityType(0);
+        unsafe { store.requestAccessForEntityType_completionHandler(entity_type, &block); }
+        wait_for_callback(&pair);
+        tracing::info!("Contacts registration trigger complete");
+        Ok(())
+    }
 }
 
-/// Trigger registration by requesting access - this makes Tairseach appear in System Preferences
 #[cfg(target_os = "macos")]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    tracing::info!("Triggering contacts permission via native CNContactStore...");
-    
-    // Create the contact store on the main thread
-    let store = unsafe { CNContactStore::new() };
-    
-    // Use condition variable to wait for callback
-    let pair = Arc::new((Mutex::new(false), Condvar::new()));
-    let pair_clone = pair.clone();
-    
-    // Create the completion handler block with the correct signature
-    let block = StackBlock::new(move |granted: Bool, error: *mut NSError| {
-        let granted_bool = granted.as_bool();
-        if !error.is_null() {
-            tracing::warn!("Contacts permission error (but this is expected on first request)");
-        }
-        tracing::info!("Contacts permission callback: granted={}", granted_bool);
-        
-        // Signal completion
-        let (lock, cvar) = &*pair_clone;
-        if let Ok(mut done) = lock.lock() {
-            *done = true;
-            cvar.notify_one();
-        }
-    });
-    
-    // Request access - CNEntityTypeContacts = 0
-    // This MUST trigger the permission dialog
-    let entity_type = CNEntityType(0);
-    
-    tracing::info!("Calling requestAccessForEntityType_completionHandler...");
-    unsafe {
-        store.requestAccessForEntityType_completionHandler(entity_type, &block);
-    }
-    tracing::info!("Request sent, waiting for response...");
-    
-    // Wait for the callback with timeout
-    let (lock, cvar) = &*pair;
-    if let Ok(guard) = lock.lock() {
-        let _ = cvar.wait_timeout(guard, Duration::from_secs(30));
-    }
-    
-    tracing::info!("Contacts registration trigger complete");
-    Ok(())
-}
+pub fn check() -> Result<Permission, PermissionError> { native::check() }
+#[cfg(target_os = "macos")]
+pub fn trigger_registration() -> Result<(), PermissionError> { native::trigger_registration() }
 
-/// Fallback for non-macOS (should not be called)
 #[cfg(not(target_os = "macos"))]
 pub fn check() -> Result<Permission, PermissionError> {
-    Ok(Permission::new(
-        "contacts",
-        "Contacts",
-        "Access to read and modify your contacts",
-        PermissionStatus::Unknown,
-        true,
-    ))
+    super::non_macos_permission("contacts", "Contacts", "Access to read and modify your contacts", true)
 }
-
 #[cfg(not(target_os = "macos"))]
-pub fn trigger_registration() -> Result<(), PermissionError> {
-    Err(PermissionError::CheckFailed("Not supported on this platform".to_string()))
-}
+pub fn trigger_registration() -> Result<(), PermissionError> { super::non_macos_trigger() }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_check_returns_permission() {
-        let result = check();
-        assert!(result.is_ok());
-        let perm = result.unwrap();
+        let perm = check().unwrap();
         assert_eq!(perm.id, "contacts");
         assert!(perm.critical);
     }

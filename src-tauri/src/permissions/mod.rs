@@ -18,6 +18,10 @@ mod screen_recording;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::sync::{Arc, Condvar, Mutex};
+
+#[cfg(target_os = "macos")]
+use std::time::Duration;
 
 /// Permission authorization status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +133,101 @@ fn get_pane_for_permission(permission_id: &str) -> Option<&'static str> {
         ids::MICROPHONE => Some("Privacy_Microphone"),
         ids::LOCATION => Some("Privacy_LocationServices"),
         _ => None,
+    }
+}
+
+// ============================================================================
+// Shared Permission Helpers
+// ============================================================================
+
+/// Map a raw authorization status integer (0–5) to PermissionStatus.
+/// Works for most macOS frameworks (CNContactStore, EKEventStore, AVCaptureDevice,
+/// PHPhotoLibrary, CLLocationManager) which all use the same 0–3(+) convention.
+pub(crate) fn status_from_raw(raw: isize) -> PermissionStatus {
+    match raw {
+        0 => PermissionStatus::NotDetermined,
+        1 => PermissionStatus::Restricted,
+        2 => PermissionStatus::Denied,
+        3 => PermissionStatus::Granted, // Authorized / AuthorizedAlways / FullAccess
+        4 => PermissionStatus::Granted, // AuthorizedWhenInUse / Limited / FullAccess (macOS 14+)
+        5 => PermissionStatus::Granted, // WriteOnly (macOS 14+)
+        _ => PermissionStatus::Unknown,
+    }
+}
+
+/// Check a permission by running a Swift snippet. Returns Granted if stdout
+/// contains "authorized", NotDetermined otherwise. Used for accessibility and
+/// screen recording which lack objc2 bindings.
+pub(crate) fn check_via_swift(swift_code: &str, permission_name: &str) -> PermissionStatus {
+    let output = Command::new("swift").args(["-e", swift_code]).output();
+
+    match output {
+        Ok(result) if result.status.success() => {
+            let stdout = String::from_utf8_lossy(&result.stdout).trim().to_string();
+            if stdout == "authorized" {
+                PermissionStatus::Granted
+            } else {
+                PermissionStatus::NotDetermined
+            }
+        }
+        Ok(result) => {
+            tracing::warn!(
+                "{} permission check failed: {}",
+                permission_name,
+                String::from_utf8_lossy(&result.stderr)
+            );
+            PermissionStatus::Unknown
+        }
+        Err(e) => {
+            tracing::error!("Failed to run swift for {} check: {}", permission_name, e);
+            PermissionStatus::Unknown
+        }
+    }
+}
+
+/// Create a non-macOS fallback Permission (Unknown status).
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn non_macos_permission(
+    id: &str,
+    name: &str,
+    description: &str,
+    critical: bool,
+) -> Result<Permission, PermissionError> {
+    Ok(Permission::new(id, name, description, PermissionStatus::Unknown, critical))
+}
+
+/// Non-macOS fallback for trigger_registration.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn non_macos_trigger() -> Result<(), PermissionError> {
+    Err(PermissionError::CheckFailed("Not supported on this platform".to_string()))
+}
+
+/// Callback synchronization pair type.
+#[cfg(target_os = "macos")]
+pub(crate) type CallbackPair = Arc<(Mutex<bool>, Condvar)>;
+
+/// Helper to wait on a CallbackPair with a 30-second timeout.
+#[cfg(target_os = "macos")]
+pub(crate) fn wait_for_callback(pair: &CallbackPair) {
+    let (lock, cvar): &(Mutex<bool>, Condvar) = &**pair;
+    if let Ok(guard) = lock.lock() {
+        let _ = cvar.wait_timeout(guard, Duration::from_secs(30));
+    }
+}
+
+/// Create a new CallbackPair for async callback synchronization.
+#[cfg(target_os = "macos")]
+pub(crate) fn callback_pair() -> CallbackPair {
+    Arc::new((Mutex::new(false), Condvar::new()))
+}
+
+/// Signal completion on a callback pair.
+#[cfg(target_os = "macos")]
+pub(crate) fn signal_callback(pair: &CallbackPair) {
+    let (lock, cvar): &(Mutex<bool>, Condvar) = &**pair;
+    if let Ok(mut done) = lock.lock() {
+        *done = true;
+        cvar.notify_one();
     }
 }
 
