@@ -77,41 +77,37 @@ async fn handle_list_reminders(params: &Value, id: Value) -> JsonRpcResponse {
 
 /// Create a new reminder
 async fn handle_create_reminder(params: &Value, id: Value) -> JsonRpcResponse {
-    let title = match params.get("title").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'title' parameter");
-        }
+    let title = match require_string(params, "title", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
     };
     
-    let list_id = params.get("listId").and_then(|v| v.as_str());
-    let due_date = params.get("dueDate").and_then(|v| v.as_str());
-    let notes = params.get("notes").and_then(|v| v.as_str());
+    let list_id = optional_string(params, "listId");
+    let due_date = optional_string(params, "dueDate");
+    let notes = optional_string(params, "notes");
     let priority = params.get("priority").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
     
     match create_reminder(title, list_id, due_date, notes, priority).await {
-        Some(reminder) => JsonRpcResponse::success(
+        Some(reminder) => ok(
             id,
             serde_json::json!({
                 "created": true,
                 "reminder": reminder,
             }),
         ),
-        None => JsonRpcResponse::error(id, -32003, "Failed to create reminder", None),
+        None => error(id, -32003, "Failed to create reminder"),
     }
 }
 
 /// Mark a reminder as complete
 async fn handle_complete_reminder(params: &Value, id: Value) -> JsonRpcResponse {
-    let reminder_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let reminder_id = match require_string(params, "id", &id) {
+        Ok(rid) => rid,
+        Err(response) => return response,
     };
     
     if set_reminder_completed(reminder_id, true).await {
-        JsonRpcResponse::success(
+        ok(
             id,
             serde_json::json!({
                 "completed": true,
@@ -119,21 +115,19 @@ async fn handle_complete_reminder(params: &Value, id: Value) -> JsonRpcResponse 
             }),
         )
     } else {
-        JsonRpcResponse::error(id, -32003, "Failed to complete reminder", None)
+        error(id, -32003, "Failed to complete reminder")
     }
 }
 
 /// Mark a reminder as incomplete
 async fn handle_uncomplete_reminder(params: &Value, id: Value) -> JsonRpcResponse {
-    let reminder_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let reminder_id = match require_string(params, "id", &id) {
+        Ok(rid) => rid,
+        Err(response) => return response,
     };
     
     if set_reminder_completed(reminder_id, false).await {
-        JsonRpcResponse::success(
+        ok(
             id,
             serde_json::json!({
                 "uncompleted": true,
@@ -141,21 +135,19 @@ async fn handle_uncomplete_reminder(params: &Value, id: Value) -> JsonRpcRespons
             }),
         )
     } else {
-        JsonRpcResponse::error(id, -32003, "Failed to uncomplete reminder", None)
+        error(id, -32003, "Failed to uncomplete reminder")
     }
 }
 
 /// Delete a reminder
 async fn handle_delete_reminder(params: &Value, id: Value) -> JsonRpcResponse {
-    let reminder_id = match params.get("id").and_then(|v| v.as_str()) {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'id' parameter");
-        }
+    let reminder_id = match require_string(params, "id", &id) {
+        Ok(rid) => rid,
+        Err(response) => return response,
     };
     
     if delete_reminder(reminder_id).await {
-        JsonRpcResponse::success(
+        ok(
             id,
             serde_json::json!({
                 "deleted": true,
@@ -163,7 +155,7 @@ async fn handle_delete_reminder(params: &Value, id: Value) -> JsonRpcResponse {
             }),
         )
     } else {
-        JsonRpcResponse::error(id, -32003, "Failed to delete reminder", None)
+        error(id, -32003, "Failed to delete reminder")
     }
 }
 

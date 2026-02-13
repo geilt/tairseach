@@ -251,47 +251,29 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     // Retrieve Jira credentials from auth broker
-    let account = params
-        .get("account")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
+    let account = string_with_default(params, "account", "default");
 
     let token_data = match auth_broker.get_token("jira", account, None).await {
         Ok(data) => data,
         Err((code, msg)) => {
             error!("Failed to get Jira token: {}", msg);
-            return JsonRpcResponse::error(id, code, msg, None);
+            return error(id, code, msg);
         }
     };
 
     // For Jira, we store email in a custom field or in the account name
     // Let's expect it in params or derive from account
-    let email = params
-        .get("email")
-        .and_then(|v| v.as_str())
-        .unwrap_or(account);
+    let email = optional_string(params, "email").unwrap_or(account);
 
-    let api_token = match token_data.get("access_token").and_then(|v| v.as_str()) {
-        Some(token) => token.to_string(),
-        None => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                "Invalid token response: missing access_token".to_string(),
-                None,
-            );
-        }
+    let api_token = match extract_access_token(&token_data, &id) {
+        Ok(token) => token,
+        Err(response) => return response,
     };
 
     // Get base URL from params (required for Jira Cloud)
-    let base_url = match params.get("base_url").or_else(|| params.get("baseUrl")).and_then(|v| v.as_str()) {
-        Some(url) => url.to_string(),
-        None => {
-            return JsonRpcResponse::invalid_params(
-                id,
-                "Missing required parameter: base_url (e.g., 'https://your-domain.atlassian.net')",
-            );
-        }
+    let base_url = match require_string_or(params, "base_url", "baseUrl", &id) {
+        Ok(url) => url.to_string(),
+        Err(response) => return response,
     };
 
     // Create API client
@@ -299,7 +281,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create Jira API client: {}", e);
-            return JsonRpcResponse::error(id, -32000, e, None);
+            return generic_error(id, e);
         }
     };
 
@@ -312,43 +294,29 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "issues.transition" | "issues_transition" => handle_transition_issue(params, id, api).await,
         "projects.list" | "projects_list" => handle_list_projects(id, api).await,
         "sprints.list" | "sprints_list" => handle_list_sprints(params, id, api).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("jira.{}", action)),
+        _ => method_not_found(id, &format!("jira.{}", action)),
     }
 }
 
 async fn handle_search_issues(params: &Value, id: Value, api: JiraApi) -> JsonRpcResponse {
     info!("Handling jira.issues.search");
 
-    let jql = match params.get("jql").and_then(|v| v.as_str()) {
-        Some(q) => q,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: jql");
-        }
+    let jql = match require_string(params, "jql", &id) {
+        Ok(q) => q,
+        Err(response) => return response,
     };
 
-    let fields = params
-        .get("fields")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
-
-    let max_results = params
-        .get("max_results")
-        .or_else(|| params.get("maxResults"))
-        .and_then(|v| v.as_u64())
-        .map(|n| n as usize);
+    let fields = optional_string_array(params, "fields");
+    let max_results = optional_u64_or(params, "max_results", "maxResults").map(|n| n as usize);
 
     match api.search_issues(jql, fields, max_results).await {
         Ok(data) => {
             debug!("Retrieved issues");
-            JsonRpcResponse::success(id, data)
+            ok(id, data)
         }
         Err(e) => {
             error!("Failed to search issues: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -356,18 +324,20 @@ async fn handle_search_issues(params: &Value, id: Value, api: JiraApi) -> JsonRp
 async fn handle_get_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpcResponse {
     info!("Handling jira.issues.get");
 
-    let issue_key = match params.get("issue_key").or_else(|| params.get("issueKey")).or_else(|| params.get("key")).and_then(|v| v.as_str()) {
+    let issue_key = match optional_string_or(params, "issue_key", "issueKey")
+        .or_else(|| optional_string(params, "key"))
+    {
         Some(k) => k,
         None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: issue_key");
+            return invalid_params(id, "Missing required parameter: issue_key");
         }
     };
 
     match api.get_issue(issue_key).await {
-        Ok(issue) => JsonRpcResponse::success(id, issue),
+        Ok(issue) => ok(id, issue),
         Err(e) => {
             error!("Failed to get issue: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -378,18 +348,18 @@ async fn handle_create_issue(params: &Value, id: Value, api: JiraApi) -> JsonRpc
     let issue_data = match params.get("issue") {
         Some(v) => v.clone(),
         None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: issue");
+            return invalid_params(id, "Missing required parameter: issue");
         }
     };
 
     match api.create_issue(issue_data).await {
         Ok(created) => {
             info!("Issue created successfully");
-            JsonRpcResponse::success(id, created)
+            ok(id, created)
         }
         Err(e) => {
             error!("Failed to create issue: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
