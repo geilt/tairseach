@@ -1,492 +1,513 @@
 # Environment Reference
 
-**Runtime paths, config files, and environment variables for Tairseach.**
+Runtime paths, configuration files, and environment variables used by Tairseach.
 
 ---
 
 ## Directory Structure
 
-### `~/.tairseach/` (Runtime Data)
-
-Primary runtime directory for all Tairseach state.
+All Tairseach runtime state lives under `~/.tairseach/`:
 
 ```
 ~/.tairseach/
-├── tairseach.sock              # Unix socket (MCP proxy server)
-├── credentials.enc.json        # Encrypted OAuth tokens (auth broker)
-├── credentials.schema.json     # Token schema validation
-├── auth/
-│   ├── master.key              # Encrypted master key
-│   └── <provider>/             # Per-provider auth state
-├── manifests/
-│   ├── contacts.json           # Contacts API manifest
-│   ├── calendar.json           # Calendar API manifest
-│   ├── automation.json         # Automation manifest
-│   └── ...                     # Other capability manifests
-└── libs/
-    └── <provider>/             # Provider-specific libraries
-```
-
-**Created by:** First launch of Tairseach.app  
-**Permissions:** `700` (owner-only access)  
-**Cleanup:** Safe to delete (will regenerate on next launch, but auth tokens will be lost)
-
-### `~/Applications/Tairseach.app/` (Installed App)
-
-Tauri-built macOS application bundle.
-
-```
-~/Applications/Tairseach.app/
-└── Contents/
-    ├── MacOS/
-    │   ├── Tairseach           # Main GUI binary (Rust + Tauri + Vue)
-    │   ├── tairseach-mcp       # MCP proxy server (Rust)
-    │   └── op-helper           # 1Password helper (Go)
-    ├── Resources/
-    │   ├── icon.icns           # App icon
-    │   └── dist/               # Vue frontend (HTML/CSS/JS)
-    ├── Info.plist              # App metadata + privacy descriptions
-    ├── Entitlements.plist      # Granted system permissions
-    └── _CodeSignature/         # Code signing data (if signed)
-```
-
-**Installation:**
-- Dev: `src-tauri/target/release/bundle/macos/Tairseach.app`
-- Production: Drag from DMG to `~/Applications/`
-
-### Source Tree (Development)
-
-```
-~/environment/tairseach/
-├── src/                        # Vue 3 frontend
-│   ├── views/                  # Route components
-│   ├── components/             # Reusable UI
-│   ├── stores/                 # Pinia state
-│   ├── composables/            # Vue utilities
-│   ├── workers/                # Web Workers
-│   ├── router/                 # Vue Router
-│   └── assets/                 # Static assets
-├── src-tauri/                  # Rust backend
-│   ├── src/                    # Tauri app logic
-│   ├── binaries/               # Pre-built external binaries
-│   │   ├── tairseach-mcp-aarch64-apple-darwin
-│   │   └── op-helper-aarch64-apple-darwin
-│   ├── helpers/                # External helpers (Go)
-│   ├── Cargo.toml              # Rust dependencies
-│   ├── tauri.conf.json         # Tauri config
-│   ├── Entitlements.plist      # macOS permissions
-│   └── target/                 # Build artifacts
-├── docs/                       # Documentation
-├── scripts/                    # Build scripts
-└── package.json                # Node dependencies
+├── tairseach.sock              # Unix domain socket (MCP bridge)
+├── manifests/                  # Deployed MCP manifests
+│   ├── core/                   # Core capabilities
+│   │   ├── fs.json
+│   │   ├── exec.json
+│   │   └── ...
+│   └── integrations/           # Integration manifests
+│       ├── google.json
+│       ├── jira.json
+│       ├── oura.json
+│       └── ...
+├── credentials/                # Encrypted credential store
+│   ├── store.aes               # AES-GCM encrypted credentials
+│   └── salt.hex                # HKDF salt for key derivation
+├── config/                     # Application configuration
+│   └── proxy.toml              # Proxy server config (port, socket path, etc.)
+└── logs/                       # Application logs
+    ├── app.log                 # Tauri app logs
+    ├── proxy.log               # MCP proxy server logs
+    └── auth.log                # Auth flow logs
 ```
 
 ---
 
-## Binary Locations
-
-### Runtime (Bundled App)
-
-| Binary | Path | Purpose |
-|--------|------|---------|
-| `Tairseach` | `~/Applications/Tairseach.app/Contents/MacOS/Tairseach` | Main GUI application |
-| `tairseach-mcp` | `~/Applications/Tairseach.app/Contents/MacOS/tairseach-mcp` | MCP proxy server (spawned by main app) |
-| `op-helper` | `~/Applications/Tairseach.app/Contents/MacOS/op-helper` | 1Password SDK bridge (called via FFI) |
-
-**Access from code:**
-```rust
-// Tauri resolves bundled binaries automatically
-let mcp_bin = tauri::api::path::resolve_resource("tairseach-mcp")?;
-let op_bin = tauri::api::path::resolve_resource("op-helper")?;
-```
-
-### Build Time (Development)
-
-| Binary | Path | Built By |
-|--------|------|----------|
-| `tairseach` | `src-tauri/target/release/tairseach` | `cargo build --release` |
-| `tairseach-mcp` | `src-tauri/target/release/tairseach-mcp` | `cargo build -p tairseach-mcp --release` |
-| `op-helper` | `src-tauri/bin/op-helper` | `src-tauri/helpers/onepassword/build.sh` |
-
-**Staging for bundle:**
-```bash
-# Copy to binaries/ with arch suffix for Tauri
-cp src-tauri/target/release/tairseach-mcp \
-   src-tauri/binaries/tairseach-mcp-aarch64-apple-darwin
-
-cp src-tauri/bin/op-helper \
-   src-tauri/binaries/op-helper-aarch64-apple-darwin
-```
-
----
-
-## Socket Communication
-
-### Unix Socket
+## Unix Socket
 
 **Path:** `~/.tairseach/tairseach.sock`  
-**Type:** Unix domain socket (SOCK_STREAM)  
-**Protocol:** JSON-RPC over newline-delimited JSON  
-**Permissions:** `600` (owner-only)
-
-**Purpose:**
-- MCP protocol bridge (OpenClaw → Tairseach)
-- Tool invocation (contacts, calendar, automation, etc.)
+**Purpose:** MCP (Model Context Protocol) communication socket  
+**Owner:** `tairseach-mcp` binary (spawned by Tauri app)  
+**Permissions:** `0600` (user read/write only)  
+**Protocol:** MCP over JSON-RPC 2.0
 
 **Lifecycle:**
-1. Created by `tairseach-mcp` on startup
-2. Bound to `~/.tairseach/tairseach.sock`
-3. Removed on graceful shutdown
-4. Stale socket cleaned up on next start
+- Created by `tairseach-mcp` on startup
+- Removed on clean shutdown
+- **Stale socket handling:** If socket exists on startup, server attempts to connect to verify if active. If connection fails, socket is unlinked and recreated.
 
-**Security:**
-- File permissions prevent other users from connecting
-- No authentication required (local socket only)
-- Validates JSON-RPC format before processing
+**Usage:**
+- OpenClaw gateway connects via MCP protocol
+- Tairseach GUI sends tool invocations
+- Activity feed tails structured log events from socket
 
-**Test connectivity:**
-```bash
-# Check if socket exists and is alive
-echo '{"jsonrpc":"2.0","method":"ping","id":1}' | nc -U ~/.tairseach/tairseach.sock
+**Example connection (from OpenClaw):**
+```toml
+# ~/.openclaw/config.toml
+[mcpServers.tairseach]
+type = "stdio"
+command = "nc"
+args = ["-U", "/Users/geilt/.tairseach/tairseach.sock"]
 ```
 
 ---
 
-## Configuration Files
+## Manifests
 
-### `~/.tairseach/credentials.enc.json`
+**Base path:** `~/.tairseach/manifests/`
 
-**Format:** Encrypted JSON (AES-256-GCM)  
-**Purpose:** OAuth token storage (Google, etc.)  
-**Encryption:** Master key derived from `auth/master.key`
+### Core Manifests (`core/`)
 
-**Structure (decrypted):**
+Core capabilities exposed by macOS/Tauri:
+
+- `fs.json` — File system operations (read, write, list, delete)
+- `exec.json` — Command execution
+- `permissions.json` — macOS permission management
+- `notifications.json` — macOS notification center
+- `clipboard.json` — System clipboard
+- `system.json` — System info (hostname, uptime, etc.)
+
+**Format:**
 ```json
 {
-  "version": 1,
-  "tokens": [
-    {
-      "provider": "google",
-      "account": "user@example.com",
-      "client_id": "...",
-      "client_secret": "...",
-      "access_token": "...",
-      "refresh_token": "...",
-      "token_type": "Bearer",
-      "expiry": "2026-02-13T12:00:00Z",
-      "scopes": ["https://www.googleapis.com/auth/calendar"],
-      "issued_at": "2026-02-13T10:00:00Z",
-      "last_refreshed": "2026-02-13T11:00:00Z"
-    }
-  ]
-}
-```
-
-**Access:**
-- Read/write via Tauri commands: `auth_get_token`, `auth_store_token`, `auth_revoke_token`
-- Never exposed to frontend (decryption happens in Rust)
-
-### `~/.tairseach/credentials.schema.json`
-
-**Purpose:** JSON schema for validating credential format  
-**Used by:** Auth broker during token storage
-
-### `~/.tairseach/auth/master.key`
-
-**Format:** Encrypted key file (random 32-byte key + metadata)  
-**Purpose:** Master encryption key for credentials  
-**Derivation:** HKDF-SHA256 from user-provided passphrase (if set) or auto-generated
-
-**Lifecycle:**
-1. Generated on first launch
-2. Used to encrypt/decrypt `credentials.enc.json`
-3. Can be re-keyed with new passphrase
-
-**Security:**
-- File permissions: `600`
-- Key never stored in plaintext memory (uses `zeroize` crate)
-
-### Manifest Files
-
-**Location:** `~/.tairseach/manifests/`  
-**Format:** JSON (MCP manifest spec)  
-**Purpose:** Tool capability definitions for each integration
-
-**Example (`contacts.json`):**
-```json
-{
-  "id": "contacts",
-  "name": "Contacts",
-  "description": "Access to macOS Contacts",
-  "version": "0.1.0",
-  "category": "personal",
+  "id": "core.fs",
+  "name": "File System",
+  "description": "File system operations",
+  "version": "1.0.0",
+  "category": "core",
   "tools": [
     {
-      "name": "contacts.search",
-      "description": "Search contacts by name",
+      "name": "fs.read",
+      "description": "Read file contents",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" }
+          "path": { "type": "string" }
         },
-        "required": ["query"]
+        "required": ["path"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "contents": { "type": "string" }
+        }
       }
     }
   ]
 }
 ```
 
-**Loaded by:** MCP proxy on startup  
-**Watched for changes:** Yes (via `notify` crate, FSEvents on macOS)
+### Integration Manifests (`integrations/`)
+
+Third-party service integrations:
+
+- `google.json` — Google Calendar, Gmail, Contacts (OAuth)
+- `jira.json` — Jira projects, issues, boards
+- `oura.json` — Oura Ring sleep/health data
+- `onepassword.json` — 1Password vaults, items (via `op-helper`)
+- `slack.json` — Slack channels, messages (future)
+
+**Manifest discovery:**
+- Backend scans `~/.tairseach/manifests/**/*.json`
+- Cached in memory on startup
+- File watcher reloads on changes (via `notify` crate)
+
+**Namespace mapping:**
+- Manifest `id` first segment becomes namespace: `google.calendar` → `google`
+- Tools prefixed with namespace: `google.calendar.list`
 
 ---
 
-## Environment Variables
+## Credentials
 
-### Runtime (Tairseach App)
+**Base path:** `~/.tairseach/credentials/`
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `TAIRSEACH_HOME` | `~/.tairseach` | Override runtime directory |
-| `TAIRSEACH_MCP_SOCKET` | `~/.tairseach/tairseach.sock` | Override socket path |
-| `TAIRSEACH_LOG` | `info` | Logging level (trace/debug/info/warn/error) |
-| `TAIRSEACH_NO_PROXY` | (unset) | Disable MCP proxy auto-start |
+### Encrypted Store
 
-**Usage:**
-```bash
-# Enable debug logging
-TAIRSEACH_LOG=debug open ~/Applications/Tairseach.app
+**File:** `~/.tairseach/credentials/store.aes`  
+**Format:** AES-256-GCM encrypted JSON  
+**Key derivation:** HKDF-SHA256 from macOS Keychain master key + file-based salt
 
-# Use custom socket path
-TAIRSEACH_MCP_SOCKET=/tmp/tairseach.sock open ~/Applications/Tairseach.app
-```
-
-### Build Time
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CARGO_BUILD_TARGET` | `aarch64-apple-darwin` | Rust target triple |
-| `GOOS` | `darwin` | Go target OS (for op-helper) |
-| `GOARCH` | `arm64` | Go target architecture |
-
-**Set by:** Build scripts (automatic)
-
----
-
-## OpenClaw Integration
-
-### MCP Server Discovery
-
-**How OpenClaw finds Tairseach:**
-
-1. Check `~/.openclaw/config.yaml` for `tools.mcp.servers`:
-   ```yaml
-   tools:
-     mcp:
-       servers:
-         tairseach:
-           transport: unix
-           socket: ~/.tairseach/tairseach.sock
-   ```
-
-2. Or auto-discover via `OPENCLAW_MCP_SERVERS` env var:
-   ```bash
-   export OPENCLAW_MCP_SERVERS="tairseach:unix:///Users/user/.tairseach/tairseach.sock"
-   ```
-
-### Skill Configuration
-
-**Location:** `~/.openclaw/skills/tairseach/`  
-**Files:**
-- `SKILL.md` — Agent instructions for using Tairseach tools
-- `manifest.json` — Skill metadata (auto-generated)
-
-**Installation:**
-- Manual: Copy manifests + write SKILL.md
-- Automatic: Use "Install to OpenClaw" button in MCPView.vue
-
----
-
-## State & Cache Files
-
-### Browser localStorage
-
-**Key prefix:** `tairseach_cache_`  
-**Purpose:** Frontend state persistence (instant hydration)
-
-**Cached stores:**
-- `tairseach_cache_config` — OpenClaw config
-- `tairseach_cache_auth` — Auth status + accounts
-- `tairseach_cache_permissions` — Permission statuses
-- `tairseach_cache_monitor` — Activity events
-- `tairseach_cache_profiles` — Agent profiles
-- `tairseach_cache_dashboard` — Dashboard summary
-
-**Format:**
+**Structure (decrypted):**
 ```json
 {
-  "data": { /* store state */ },
-  "lastUpdated": "2026-02-13T12:00:00.000Z"
+  "google_oauth": {
+    "access_token": "ya29.a0AfH6...",
+    "refresh_token": "1//0gZ...",
+    "expires_at": "2024-02-13T12:00:00Z",
+    "scopes": ["https://www.googleapis.com/auth/calendar"]
+  },
+  "jira": {
+    "api_token": "ATATT3xFfGF0...",
+    "email": "user@example.com",
+    "base_url": "https://example.atlassian.net"
+  }
 }
 ```
 
-**Location:** Browser WebKit storage (managed by Tauri)  
-**Persistence:** Survives app restart  
-**Cleanup:** Clear via DevTools or delete `~/Library/WebKit/...` (complex path)
+**Credential types:**
+- `google_oauth` — Google OAuth 2.0 tokens (auto-refresh)
+- `jira` — Jira API token + base URL
+- `oura` — Oura Personal Access Token
+- `1password` — 1Password service account token (stored in macOS Keychain, not file)
+
+### Salt File
+
+**File:** `~/.tairseach/credentials/salt.hex`  
+**Format:** 32-byte random salt, hex-encoded  
+**Purpose:** Combined with Keychain master key for HKDF  
+**Generated:** Once on first credential save  
+**Rotation:** Not currently supported (would require re-encryption of all credentials)
+
+**Security model:**
+- Master key stored in macOS Keychain (OS-protected)
+- Salt stored on disk (not secret, provides key rotation potential)
+- Encrypted credentials file useless without Keychain access
+- Keychain access requires user authentication (Touch ID/password)
+
+---
+
+## Configuration
+
+**Base path:** `~/.tairseach/config/`
+
+### Proxy Configuration
+
+**File:** `~/.tairseach/config/proxy.toml`  
+**Purpose:** MCP proxy server runtime config
+
+**Example:**
+```toml
+[server]
+socket_path = "/Users/geilt/.tairseach/tairseach.sock"
+log_path = "/Users/geilt/.tairseach/logs/proxy.log"
+log_level = "info"
+
+[manifests]
+core_path = "/Users/geilt/.tairseach/manifests/core"
+integrations_path = "/Users/geilt/.tairseach/manifests/integrations"
+watch = true  # Hot-reload on manifest changes
+
+[credentials]
+store_path = "/Users/geilt/.tairseach/credentials/store.aes"
+```
+
+**Defaults:**
+- Socket path: `~/.tairseach/tairseach.sock`
+- Log level: `info`
+- Manifest watching: enabled
 
 ---
 
 ## Logs
 
-### Application Logs
+**Base path:** `~/.tairseach/logs/`
 
-**Console output:**
-- Dev mode: Terminal where `npm run dev` was launched
-- Release: macOS Console.app → filter by "Tairseach"
+### App Log
 
-**Logging library:** `tracing` (Rust)  
-**Log format:**
+**File:** `~/.tairseach/logs/app.log`  
+**Written by:** Tauri app (Rust backend)  
+**Format:** Structured JSON lines (one event per line)  
+**Rotation:** None (manual cleanup)
+
+**Example entry:**
+```json
+{
+  "timestamp": "2024-02-13T10:30:45.123Z",
+  "level": "INFO",
+  "target": "tairseach::commands::permissions",
+  "message": "Permission check requested",
+  "fields": {
+    "permission_id": "screen-recording"
+  }
+}
 ```
-2026-02-13T12:00:00.000Z INFO tairseach: Starting MCP proxy server
-2026-02-13T12:00:00.100Z DEBUG tairseach_mcp: Bound to socket: ~/.tairseach/tairseach.sock
+
+### Proxy Log
+
+**File:** `~/.tairseach/logs/proxy.log`  
+**Written by:** `tairseach-mcp` binary  
+**Format:** Structured JSON lines  
+**Read by:** ActivityView (tails via `get_events` command)
+
+**Example entry:**
+```json
+{
+  "id": "01HPQR7S2T3V4W5X6Y7Z8A9B0C",
+  "timestamp": "2024-02-13T10:31:00.456Z",
+  "event_type": "tool_invocation",
+  "source": "openclaw",
+  "message": "Tool executed successfully",
+  "metadata": {
+    "tool": "gcalendar.listCalendars",
+    "namespace": "google",
+    "status": "success",
+    "duration_ms": 234
+  }
+}
 ```
 
-**Control level:**
+**Event types:**
+- `tool_invocation` — MCP tool called
+- `auth_flow_start` — OAuth flow initiated
+- `auth_flow_complete` — OAuth flow completed
+- `credential_refresh` — Token auto-refresh
+- `manifest_reload` — Manifest hot-reload event
+- `error` — Any error condition
+
+### Auth Log
+
+**File:** `~/.tairseach/logs/auth.log`  
+**Written by:** Auth broker (Rust backend)  
+**Format:** Structured JSON lines  
+**Purpose:** OAuth flow debugging, credential refresh tracking
+
+---
+
+## Binaries
+
+### MCP Bridge
+
+**Dev mode:** `src-tauri/target/debug/tairseach-mcp`  
+**Production (bundled):** `Tairseach.app/Contents/MacOS/tairseach-mcp`
+
+**Purpose:** MCP server exposing Tairseach capabilities to OpenClaw  
+**Lifecycle:** Spawned by Tauri app on startup via `tauri::process::Command`  
+**Shutdown:** Killed when Tauri app quits (child process)
+
+**Invocation:**
+```rust
+tauri::api::process::Command::new_sidecar("tairseach-mcp")
+  .expect("failed to create sidecar command")
+  .spawn()
+```
+
+### 1Password Helper
+
+**Dev mode:** `src-tauri/bin/op-helper`  
+**Production (bundled):** `Tairseach.app/Contents/MacOS/op-helper`
+
+**Purpose:** Wrapper around 1Password SDK (Go binary)  
+**Lifecycle:** Invoked on-demand via `std::process::Command`  
+**Communication:** JSON over stdin/stdout
+
+**Example invocation:**
 ```bash
-TAIRSEACH_LOG=debug open ~/Applications/Tairseach.app
+echo '{"vault":"Naonur","item":"OpenAI API Key"}' | op-helper
 ```
 
-### Activity Events
-
-**Storage:** In-memory (max 2000 events)  
-**Access:** Via `get_events` Tauri command  
-**Persistence:** None (cleared on app restart)  
-**Export:** Copy from Activity view or query via Tauri command
+**Response:**
+```json
+{
+  "field": "credential",
+  "value": "sk-..."
+}
+```
 
 ---
 
-## Permissions & Privacy
+## Environment Variables
 
-### macOS Privacy Descriptions
+Tairseach does NOT use environment variables for configuration. All config is file-based (TOML).
 
-**Location:** `~/Applications/Tairseach.app/Contents/Info.plist`  
-**Keys required:**
-```xml
-<key>NSContactsUsageDescription</key>
-<string>Tairseach needs access to Contacts to provide contact management tools via MCP.</string>
+**Rationale:**
+- Avoids env var pollution in macOS app environment
+- Config files are version-controlled (via user's dotfiles)
+- Easier multi-environment support (dev/prod configs)
 
-<key>NSCalendarsUsageDescription</key>
-<string>Tairseach needs access to Calendars to provide event management tools via MCP.</string>
-
-<key>NSRemindersUsageDescription</key>
-<string>Tairseach needs access to Reminders to provide task management tools via MCP.</string>
-
-<key>NSPhotoLibraryUsageDescription</key>
-<string>Tairseach needs access to Photos to provide photo management tools via MCP.</string>
-
-<key>NSCameraUsageDescription</key>
-<string>Tairseach needs access to the Camera for image capture tools via MCP.</string>
-
-<key>NSMicrophoneUsageDescription</key>
-<string>Tairseach needs access to the Microphone for audio recording tools via MCP.</string>
-
-<key>NSLocationWhenInUseUsageDescription</key>
-<string>Tairseach needs access to Location for location-based tools via MCP.</string>
+**Exception:** Logging level can be overridden via `RUST_LOG` (Rust convention):
+```bash
+RUST_LOG=debug open -a Tairseach
 ```
 
-**Applied by:** `scripts/patch-info-plist.sh` (during `app:launch`)
+**Supported `RUST_LOG` levels:**
+- `error` — Errors only
+- `warn` — Warnings + errors
+- `info` — Info + warnings + errors (default)
+- `debug` — Debug + info + warnings + errors
+- `trace` — All logs (very verbose)
 
-### Permission Storage
-
-**System location:** `/Library/Application Support/com.apple.TCC/TCC.db` (system-managed)  
-**User location:** `~/Library/Application Support/com.apple.TCC/TCC.db`
-
-**Not directly editable** — must grant via System Settings:
-- System Settings → Privacy & Security → [Category] → Add "Tairseach"
+**Module-specific logging:**
+```bash
+RUST_LOG=tairseach::auth=debug,tairseach::proxy=info
+```
 
 ---
 
-## Network & External Services
+## File Permissions
 
-### Google OAuth
+**Recommended permissions:**
 
-**Endpoints:**
-- Authorization: `https://accounts.google.com/o/oauth2/v2/auth`
-- Token exchange: `https://oauth2.googleapis.com/token`
-- Token refresh: `https://oauth2.googleapis.com/token`
-- Token revocation: `https://oauth2.googleapis.com/revoke`
+```bash
+~/.tairseach/                    # 0700 (user rwx only)
+~/.tairseach/tairseach.sock      # 0600 (user rw only)
+~/.tairseach/manifests/          # 0755 (user rwx, group/other rx)
+~/.tairseach/credentials/        # 0700 (user rwx only)
+~/.tairseach/credentials/*.aes   # 0600 (user rw only)
+~/.tairseach/config/             # 0755 (user rwx, group/other rx)
+~/.tairseach/logs/               # 0755 (user rwx, group/other rx)
+```
 
-**Redirect URI:** `http://localhost:8080/callback` (local web server)
+**Security notes:**
+- Socket must be user-only (no group/other access)
+- Credentials directory must be user-only (contains encrypted secrets)
+- Logs can be group/other readable (structured logs, no secrets)
 
-### 1Password SDK
+**Enforcement:**
+- App sets permissions on startup via `std::fs::set_permissions`
+- Warns on startup if permissions are too permissive
 
-**Communication:** Local Go helper process (`op-helper`)  
-**No network calls** — All vault access via local SDK
+---
+
+## Cleanup
+
+**Manual cleanup (safe):**
+```bash
+# Remove all Tairseach runtime state
+rm -rf ~/.tairseach/
+```
+
+**Partial cleanup:**
+```bash
+# Clear logs only
+rm ~/.tairseach/logs/*
+
+# Clear cached manifests (will regenerate on next launch)
+rm ~/.tairseach/manifests/**/*.json
+```
+
+**Credential removal:**
+```bash
+# Remove encrypted credentials (requires re-authentication)
+rm ~/.tairseach/credentials/store.aes
+```
+
+**Uninstall checklist:**
+1. Quit Tairseach app
+2. Delete app: `rm -rf ~/Applications/Tairseach.app`
+3. Delete runtime state: `rm -rf ~/.tairseach/`
+4. Delete OpenClaw integration: Remove `[mcpServers.tairseach]` from `~/.openclaw/config.toml`
+
+---
+
+## Path Conventions
+
+**User-specific paths:**
+- `~/.tairseach/` — Always expands to current user's home directory
+- `~/Applications/Tairseach.app` — User-installed apps (not `/Applications/`)
+
+**Portable paths (used in code):**
+```rust
+dirs::home_dir()  // ~/.tairseach/ base
+dirs::config_dir()  // ~/Library/Application Support/ (not used currently)
+dirs::cache_dir()  // ~/Library/Caches/ (not used currently)
+```
+
+**Cross-platform note:**
+- Tairseach currently macOS-only
+- All paths assume POSIX filesystem
+- Future Windows support would use `%APPDATA%\Tairseach\` instead of `~/.tairseach/`
+
+---
+
+## OpenClaw Integration Paths
+
+**OpenClaw config file:** `~/.openclaw/config.toml`
+
+**Tairseach MCP server entry:**
+```toml
+[mcpServers.tairseach]
+type = "stdio"
+command = "nc"
+args = ["-U", "/Users/geilt/.tairseach/tairseach.sock"]
+```
+
+**Alternative (future): Direct binary invocation**
+```toml
+[mcpServers.tairseach]
+type = "stdio"
+command = "/Users/geilt/Applications/Tairseach.app/Contents/MacOS/tairseach-mcp"
+args = ["--socket", "/Users/geilt/.tairseach/tairseach.sock"]
+```
+
+**Skill directory (optional):**
+```
+~/.openclaw/skills/tairseach/
+├── SKILL.md                    # Skill instructions for agents
+└── examples/                   # Example tool usage
+```
+
+---
+
+## Migration Notes
+
+**From v1 (if exists):**
+- No v1 exists yet; this is initial release
+
+**Future migrations:**
+- Credential store format changes → auto-migration on first launch
+- Manifest schema changes → backward-compatible or manual migration script
+- Config file changes → TOML parser with fallback defaults
 
 ---
 
 ## Troubleshooting
 
-### Socket Issues
+**Issue:** Socket permission denied  
+**Fix:**
+```bash
+chmod 600 ~/.tairseach/tairseach.sock
+```
 
-**Problem:** "Failed to connect to socket"
+**Issue:** Stale socket prevents startup  
+**Fix:** Remove stale socket:
+```bash
+rm ~/.tairseach/tairseach.sock
+```
+App will recreate on next launch.
 
-**Solutions:**
-1. Check socket exists: `ls -l ~/.tairseach/tairseach.sock`
-2. Check permissions: Should be `srw-------` (600)
-3. Kill stale processes: `lsof ~/.tairseach/tairseach.sock`
-4. Delete stale socket: `rm ~/.tairseach/tairseach.sock` (will recreate on restart)
+**Issue:** Credential decryption fails  
+**Cause:** Keychain access denied or salt file corrupt  
+**Fix:**
+1. Quit Tairseach
+2. Remove credentials: `rm -rf ~/.tairseach/credentials/`
+3. Relaunch and re-authenticate
 
-### Permission Denied
+**Issue:** Manifest not found  
+**Cause:** File watcher missed update or manifest malformed  
+**Fix:**
+```bash
+# Validate manifest JSON
+cat ~/.tairseach/manifests/integrations/google.json | jq .
+# Restart app to force manifest reload
+```
 
-**Problem:** "Permission denied" accessing Contacts/Calendar
-
-**Solutions:**
-1. Check System Settings → Privacy & Security → [Category]
-2. Verify `Info.plist` has usage descriptions (run `app:launch` not `tauri dev`)
-3. Re-grant permissions: Remove from System Settings, re-add
-
-### Auth Token Issues
-
-**Problem:** "Failed to decrypt credentials"
-
-**Solutions:**
-1. Check `~/.tairseach/auth/master.key` exists
-2. Check `~/.tairseach/credentials.enc.json` permissions (600)
-3. Re-initialize auth: Delete `~/.tairseach/auth/` (will regenerate, tokens lost)
-
-### Build Artifacts Not Found
-
-**Problem:** "Binary not found: tairseach-mcp"
-
-**Solutions:**
-1. Run `cargo build -p tairseach-mcp --release`
-2. Copy to `src-tauri/binaries/tairseach-mcp-aarch64-apple-darwin`
-3. Rebuild: `npm run app:build`
-
----
-
-## Path Summary
-
-| Resource | Path | Type |
-|----------|------|------|
-| **Runtime Data** |
-| Socket | `~/.tairseach/tairseach.sock` | Unix socket |
-| Credentials | `~/.tairseach/credentials.enc.json` | Encrypted JSON |
-| Master key | `~/.tairseach/auth/master.key` | Binary file |
-| Manifests | `~/.tairseach/manifests/*.json` | JSON |
-| **Installed App** |
-| Main binary | `~/Applications/Tairseach.app/Contents/MacOS/Tairseach` | Executable |
-| MCP server | `~/Applications/Tairseach.app/Contents/MacOS/tairseach-mcp` | Executable |
-| 1Password helper | `~/Applications/Tairseach.app/Contents/MacOS/op-helper` | Executable |
-| Frontend | `~/Applications/Tairseach.app/Contents/Resources/dist/` | Static files |
-| **Development** |
-| Source | `~/environment/tairseach/` | Directory |
-| Build artifacts | `~/environment/tairseach/src-tauri/target/release/` | Directory |
-| **OpenClaw Integration** |
-| MCP config | `~/.openclaw/config.yaml` | YAML |
-| Skill | `~/.openclaw/skills/tairseach/SKILL.md` | Markdown |
+**Issue:** Logs growing too large  
+**Fix:** Implement log rotation (not yet built-in):
+```bash
+# Manual rotation
+mv ~/.tairseach/logs/proxy.log ~/.tairseach/logs/proxy.log.1
+touch ~/.tairseach/logs/proxy.log
+```
 
 ---
 
-**Last updated:** 2026-02-13
+## Environment Variable Reference (Summary)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `RUST_LOG` | Logging verbosity | `info` |
+| (none) | App config is file-based | — |
+
+**Note:** Tairseach intentionally avoids env vars for runtime config. All settings are in TOML files.
