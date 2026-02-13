@@ -1,11 +1,16 @@
 //! 1Password Handler
 //!
-//! Socket handlers for 1Password Service Account API methods.
-//! Retrieves service account token from auth broker.
+//! Socket handlers for 1Password operations via Go helper binary.
 
 use serde_json::Value;
+use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
 use tokio::sync::OnceCell;
+use tokio::time::timeout;
 use tracing::{debug, error, info};
 
 use super::super::protocol::JsonRpcResponse;
@@ -38,165 +43,140 @@ async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
         })
 }
 
-/// 1Password Service Account API client
-struct OnePasswordApi {
-    token: String,
-    base_url: String,
-    client: reqwest::Client,
+/// Retrieve the SA token from the auth broker
+async fn get_sa_token(params: &Value) -> Result<String, JsonRpcResponse> {
+    let auth_broker = get_broker().await?;
+
+    let explicit_account = params.get("account").and_then(|v| v.as_str());
+
+    let mut attempts: Vec<String> = Vec::new();
+    if let Some(acct) = explicit_account {
+        attempts.push(acct.to_string());
+    }
+    attempts.push("default".to_string());
+
+    for acct in &attempts {
+        if let Ok(fields) = auth_broker.get_credential("onepassword", Some(acct)).await {
+            if let Some(token) = fields.get("service_account_token") {
+                return Ok(token.clone());
+            }
+        }
+    }
+
+    // Fallback: first available onepassword credential
+    let all_creds = auth_broker.list_credentials().await;
+    for cred in &all_creds {
+        if cred.cred_type == "onepassword" {
+            if let Ok(fields) = auth_broker
+                .get_credential("onepassword", Some(&cred.account))
+                .await
+            {
+                if let Some(token) = fields.get("service_account_token") {
+                    return Ok(token.clone());
+                }
+            }
+        }
+    }
+
+    Err(JsonRpcResponse::error(
+        Value::Null,
+        -32013,
+        "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI."
+            .to_string(),
+        None,
+    ))
 }
 
-impl OnePasswordApi {
-    const DEFAULT_API_BASE_URL: &'static str = "https://api.1password.com";
-
-    fn new(token: String) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
-        // Extract API base URL from JWT token payload (aud claim)
-        let base_url = Self::extract_api_url(&token)
-            .unwrap_or_else(|| Self::DEFAULT_API_BASE_URL.to_string());
-        
-        info!("1Password API base URL: {}", base_url);
-
-        Ok(Self {
-            token,
-            base_url,
-            client,
-        })
+/// Locate the op-helper binary
+fn get_op_helper_path() -> Result<PathBuf, String> {
+    // In development: src-tauri/bin/op-helper
+    // In production bundle: may need to adjust based on Tauri bundle structure
+    let dev_path = PathBuf::from("src-tauri/bin/op-helper");
+    if dev_path.exists() {
+        return Ok(dev_path);
     }
 
-    /// Extract the API base URL from a 1Password SA token (JWT format: ops_<jwt>)
-    fn extract_api_url(token: &str) -> Option<String> {
-        use base64::Engine;
-        
-        let jwt = token.strip_prefix("ops_")?;
-        let parts: Vec<&str> = jwt.split('.').collect();
-        if parts.len() < 2 {
-            return None;
-        }
-        
-        // Decode payload with padding
-        let payload = parts[1];
-        let padded = match payload.len() % 4 {
-            0 => payload.to_string(),
-            n => format!("{}{}", payload, "=".repeat(4 - n)),
-        };
-        
-        let decoded = base64::engine::general_purpose::URL_SAFE
-            .decode(&padded)
-            .ok()?;
-        let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-        
-        // aud can be a string or array of strings
-        let aud = claims.get("aud")?;
-        let url = if let Some(s) = aud.as_str() {
-            s.to_string()
-        } else if let Some(arr) = aud.as_array() {
-            arr.first()?.as_str()?.to_string()
-        } else {
-            return None;
-        };
-        
-        // Ensure it's a proper URL
-        if url.starts_with("https://") {
-            Some(url.trim_end_matches('/').to_string())
-        } else {
-            None
+    // Try relative to executable (for bundled app)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled_path = exe_dir.join("op-helper");
+            if bundled_path.exists() {
+                return Ok(bundled_path);
+            }
         }
     }
 
-    async fn get(&self, path: &str) -> Result<Value, String> {
-        let url = format!("{}{}", &self.base_url, path);
-        
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
+    Err("op-helper binary not found".to_string())
+}
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Failed to read error response".to_string());
-            error!("1Password API error {}: {}", status, body);
-            return Err(format!("HTTP {} error: {}", status, body));
+/// Call the Go helper binary
+async fn call_op_helper(method: &str, token: &str, params: Value) -> Result<Value, String> {
+    let helper_path = get_op_helper_path()?;
+
+    let request = serde_json::json!({
+        "method": method,
+        "token": token,
+        "params": params
+    });
+
+    let request_line = serde_json::to_string(&request).map_err(|e| format!("JSON serialize error: {}", e))?;
+
+    debug!("Spawning op-helper: {:?}", helper_path);
+    debug!("Request: {}", request_line);
+
+    let mut child = Command::new(&helper_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn op-helper: {}", e))?;
+
+    // Write request to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(request_line.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+        stdin
+            .write_all(b"\n")
+            .await
+            .map_err(|e| format!("Failed to write newline: {}", e))?;
+    }
+
+    // Read response with timeout
+    let output = timeout(Duration::from_secs(10), child.wait_with_output())
+        .await
+        .map_err(|_| "op-helper timeout (10s)".to_string())?
+        .map_err(|e| format!("Failed to wait for op-helper: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "op-helper exited with code {}: {}",
+            output.status.code().unwrap_or(-1),
+            stderr
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    debug!("Response: {}", stdout);
+
+    let response: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
+
+    if let Some(ok) = response.get("ok").and_then(|v| v.as_bool()) {
+        if ok {
+            if let Some(result) = response.get("result") {
+                return Ok(result.clone());
+            } else {
+                return Ok(Value::Null);
+            }
+        } else if let Some(error) = response.get("error").and_then(|v| v.as_str()) {
+            return Err(error.to_string());
         }
-
-        // Handle empty responses (e.g. heartbeat returns 200 with no body)
-        let text = response
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
-        
-        if text.is_empty() {
-            return Ok(serde_json::json!({"status": "ok"}));
-        }
-        
-        serde_json::from_str(&text)
-            .map_err(|e| format!("Failed to parse JSON response: {} (body: {})", e, &text[..text.len().min(200)]))
     }
 
-    async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
-        let url = format!("{}{}", &self.base_url, path);
-        
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.token))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("HTTP request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Failed to read error response".to_string());
-            error!("1Password API error {}: {}", status, body);
-            return Err(format!("HTTP {} error: {}", status, body));
-        }
-
-        response
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse JSON response: {}", e))
-    }
-
-    /// Check API status
-    async fn status(&self) -> Result<Value, String> {
-        self.get("/v1/heartbeat").await
-    }
-
-    /// List vaults
-    async fn list_vaults(&self) -> Result<Value, String> {
-        self.get("/v1/vaults").await
-    }
-
-    /// List items in a vault
-    async fn list_items(&self, vault_id: &str) -> Result<Value, String> {
-        self.get(&format!("/v1/vaults/{}/items", vault_id)).await
-    }
-
-    /// Get a specific item
-    async fn get_item(&self, vault_id: &str, item_id: &str) -> Result<Value, String> {
-        self.get(&format!("/v1/vaults/{}/items/{}", vault_id, item_id))
-            .await
-    }
-
-    /// Create an item
-    async fn create_item(&self, vault_id: &str, item: Value) -> Result<Value, String> {
-        self.post(&format!("/v1/vaults/{}/items", vault_id), item)
-            .await
-    }
+    Err("Invalid response format from op-helper".to_string())
 }
 
 /// Handle 1Password-related methods
@@ -210,103 +190,34 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         _ => {}
     }
 
-    let auth_broker = match get_broker().await {
-        Ok(broker) => broker,
+    let token = match get_sa_token(params).await {
+        Ok(t) => t,
         Err(mut resp) => {
             resp.id = id;
             return resp;
         }
     };
 
-    // Retrieve 1Password SA token — try explicit account, then "default", then first available
-    let explicit_account = params
-        .get("account")
-        .and_then(|v| v.as_str());
-
-    let access_token = {
-        let mut attempts: Vec<String> = Vec::new();
-        if let Some(acct) = explicit_account {
-            attempts.push(acct.to_string());
-        }
-        attempts.push("default".to_string());
-        
-        let mut found = None;
-        for acct in &attempts {
-            if let Ok(fields) = auth_broker.get_credential("onepassword", Some(acct)).await {
-                if let Some(token) = fields.get("service_account_token") {
-                    found = Some(token.clone());
-                    break;
-                }
-            }
-        }
-        
-        // Fallback: list all onepassword credentials and use first match
-        if found.is_none() {
-            let all_creds = auth_broker.list_credentials().await;
-            for cred in &all_creds {
-                if cred.cred_type == "onepassword" {
-                    if let Ok(fields) = auth_broker.get_credential("onepassword", Some(&cred.account)).await {
-                        if let Some(token) = fields.get("service_account_token") {
-                            found = Some(token.clone());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        
-        match found {
-            Some(token) => token,
-            None => {
-                return JsonRpcResponse::error(
-                    id,
-                    -32013,
-                    "No 1Password credentials found. Store a token via Auth > 1Password in the Tairseach UI.".to_string(),
-                    None,
-                );
-            }
-        }
-    };
-
-    // Create API client
-    let api = match OnePasswordApi::new(access_token) {
-        Ok(client) => client,
-        Err(e) => {
-            error!("Failed to create 1Password API client: {}", e);
-            return JsonRpcResponse::error(id, -32000, e, None);
-        }
-    };
-
-    // Dispatch to specific handler
     match action {
-        "status" => handle_status(id, api).await,
-        "vaults.list" | "vaults_list" => handle_list_vaults(id, api).await,
-        "items.list" | "items_list" => handle_list_items(params, id, api).await,
-        "items.get" | "items_get" => handle_get_item(params, id, api).await,
-        "items.create" | "items_create" => handle_create_item(params, id, api).await,
+        "status" => JsonRpcResponse::success(
+            id,
+            serde_json::json!({"status": "ok", "backend": "go-helper"}),
+        ),
+        "vaults.list" | "vaults_list" => handle_vaults_list(&token, params, id).await,
+        "items.list" | "items_list" => handle_items_list(&token, params, id).await,
+        "items.get" | "items_get" => handle_items_get(&token, params, id).await,
+        "secrets.resolve" => handle_secrets_resolve(&token, params, id).await,
         _ => JsonRpcResponse::method_not_found(id, &format!("op.{}", action)),
     }
 }
 
-async fn handle_status(id: Value, api: OnePasswordApi) -> JsonRpcResponse {
-    info!("Handling op.status");
+async fn handle_vaults_list(token: &str, params: &Value, id: Value) -> JsonRpcResponse {
+    info!("Handling op.vaults.list via Go helper");
 
-    match api.status().await {
-        Ok(status) => JsonRpcResponse::success(id, status),
-        Err(e) => {
-            error!("Failed to get 1Password status: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
-        }
-    }
-}
-
-async fn handle_list_vaults(id: Value, api: OnePasswordApi) -> JsonRpcResponse {
-    info!("Handling op.vaults.list");
-
-    match api.list_vaults().await {
-        Ok(vaults) => {
-            debug!("Retrieved vaults");
-            JsonRpcResponse::success(id, vaults)
+    match call_op_helper("vaults.list", token, params.clone()).await {
+        Ok(result) => {
+            debug!("Retrieved vaults via Go helper");
+            JsonRpcResponse::success(id, result)
         }
         Err(e) => {
             error!("Failed to list vaults: {}", e);
@@ -315,18 +226,22 @@ async fn handle_list_vaults(id: Value, api: OnePasswordApi) -> JsonRpcResponse {
     }
 }
 
-async fn handle_list_items(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
-    info!("Handling op.items.list");
+async fn handle_items_list(token: &str, params: &Value, id: Value) -> JsonRpcResponse {
+    info!("Handling op.items.list via Go helper");
 
     let vault_id = match get_vault_id_with_default(params).await {
         Ok(v) => v,
         Err(e) => return JsonRpcResponse::invalid_params(id, &e),
     };
 
-    match api.list_items(&vault_id).await {
-        Ok(items) => {
+    let helper_params = serde_json::json!({
+        "vault_id": vault_id
+    });
+
+    match call_op_helper("items.list", token, helper_params).await {
+        Ok(result) => {
             debug!("Retrieved items for vault {}", vault_id);
-            JsonRpcResponse::success(id, items)
+            JsonRpcResponse::success(id, result)
         }
         Err(e) => {
             error!("Failed to list items: {}", e);
@@ -335,23 +250,30 @@ async fn handle_list_items(params: &Value, id: Value, api: OnePasswordApi) -> Js
     }
 }
 
-async fn handle_get_item(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
-    info!("Handling op.items.get");
+async fn handle_items_get(token: &str, params: &Value, id: Value) -> JsonRpcResponse {
+    info!("Handling op.items.get via Go helper");
 
     let vault_id = match get_vault_id_with_default(params).await {
         Ok(v) => v,
         Err(e) => return JsonRpcResponse::invalid_params(id, &e),
     };
 
-    let item_id = match params.get("item_id").or_else(|| params.get("itemId")).and_then(|v| v.as_str()) {
+    let item_id = match params
+        .get("item_id")
+        .or_else(|| params.get("itemId"))
+        .and_then(|v| v.as_str())
+    {
         Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: item_id");
-        }
+        None => return JsonRpcResponse::invalid_params(id, "Missing required parameter: item_id"),
     };
 
-    match api.get_item(&vault_id, item_id).await {
-        Ok(item) => JsonRpcResponse::success(id, item),
+    let helper_params = serde_json::json!({
+        "vault_id": vault_id,
+        "item_id": item_id
+    });
+
+    match call_op_helper("items.get", token, helper_params).await {
+        Ok(result) => JsonRpcResponse::success(id, result),
         Err(e) => {
             error!("Failed to get item: {}", e);
             JsonRpcResponse::error(id, -32000, e, None)
@@ -359,28 +281,22 @@ async fn handle_get_item(params: &Value, id: Value, api: OnePasswordApi) -> Json
     }
 }
 
-async fn handle_create_item(params: &Value, id: Value, api: OnePasswordApi) -> JsonRpcResponse {
-    info!("Handling op.items.create");
+async fn handle_secrets_resolve(token: &str, params: &Value, id: Value) -> JsonRpcResponse {
+    info!("Handling op.secrets.resolve via Go helper");
 
-    let vault_id = match get_vault_id_with_default(params).await {
-        Ok(v) => v,
-        Err(e) => return JsonRpcResponse::invalid_params(id, &e),
+    let reference = match params.get("reference").and_then(|v| v.as_str()) {
+        Some(r) => r,
+        None => return JsonRpcResponse::invalid_params(id, "Missing required parameter: reference"),
     };
 
-    let item = match params.get("item") {
-        Some(v) => v.clone(),
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: item");
-        }
-    };
+    let helper_params = serde_json::json!({
+        "reference": reference
+    });
 
-    match api.create_item(&vault_id, item).await {
-        Ok(created) => {
-            info!("Item created successfully");
-            JsonRpcResponse::success(id, created)
-        }
+    match call_op_helper("secrets.resolve", token, helper_params).await {
+        Ok(result) => JsonRpcResponse::success(id, result),
         Err(e) => {
-            error!("Failed to create item: {}", e);
+            error!("Failed to resolve secret: {}", e);
             JsonRpcResponse::error(id, -32000, e, None)
         }
     }
@@ -388,7 +304,6 @@ async fn handle_create_item(params: &Value, id: Value, api: OnePasswordApi) -> J
 
 async fn handle_get_default_vault(id: Value) -> JsonRpcResponse {
     info!("Handling op.config.defaultVault");
-    
     match crate::config::get_onepassword_config().await {
         Ok(Some(config)) => JsonRpcResponse::success(
             id,
@@ -408,13 +323,12 @@ async fn handle_get_default_vault(id: Value) -> JsonRpcResponse {
 
 async fn handle_set_default_vault(params: &Value, id: Value) -> JsonRpcResponse {
     info!("Handling op.vaults.setDefault");
-    
     let vault_id = params
         .get("vault_id")
         .or_else(|| params.get("vaultId"))
         .and_then(|v| v.as_str())
         .map(String::from);
-    
+
     match crate::config::save_onepassword_config(vault_id.clone()).await {
         Ok(()) => {
             info!("Set default vault to: {:?}", vault_id);
@@ -432,7 +346,6 @@ async fn handle_set_default_vault(params: &Value, id: Value) -> JsonRpcResponse 
 
 /// Helper to get vault ID from params or fall back to default vault
 async fn get_vault_id_with_default(params: &Value) -> Result<String, String> {
-    // First check if vault_id is provided in params
     if let Some(vault_id) = params
         .get("vault_id")
         .or_else(|| params.get("vaultId"))
@@ -440,8 +353,7 @@ async fn get_vault_id_with_default(params: &Value) -> Result<String, String> {
     {
         return Ok(vault_id.to_string());
     }
-    
-    // Fall back to default vault
+
     match crate::config::get_onepassword_config().await {
         Ok(Some(config)) => match config.default_vault_id {
             Some(vault_id) => Ok(vault_id),
