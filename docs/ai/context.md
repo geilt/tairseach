@@ -2,7 +2,7 @@
 
 > **Purpose:** Master bootstrap file for AI agents working on Tairseach  
 > **Last Updated:** 2026-02-13  
-> **Branch:** `docs/ai-context`
+> **Branch:** `main`
 
 ---
 
@@ -44,26 +44,28 @@ Tairseach is a **capability router** that bridges AI agents to macOS system APIs
 
 | Module | Directory | Files | Lines | Status | Key Types/Traits |
 |--------|-----------|-------|-------|--------|------------------|
-| **auth** | `src-tauri/src/auth/` | 5 | 2,432 | ✅ Stable | `AuthBroker`, `CredentialStore`, `ProviderConfig`, `TokenData` |
-| **common** | `src-tauri/src/common/` | 5 | 346 | ✅ Stable | `AppError`, `ErrorCode`, `TairseachResult` |
+| **auth** | `src-tauri/src/auth/` | 7 | 2,907 | ✅ Stable | `AuthBroker`, `CredentialStore`, `ProviderConfig`, `TokenData` |
+| **common** | `src-tauri/src/common/` | 6 | 346 | ✅ Stable | `AppError`, `ErrorCode`, `TairseachResult` |
 | **config** | `src-tauri/src/config/` | 1 | 412 | ✅ Stable | Config structs for providers/models |
 | **contacts** | `src-tauri/src/contacts/` | 1 | 239 | ✅ Stable | Contact CRUD via macOS APIs |
-| **google** | `src-tauri/src/google/` | 4 | 737 | ✅ Stable | `GoogleOAuthClient`, `GmailApi`, `CalendarApi` |
+| **google** | `src-tauri/src/google/` | 5 | 767 | ✅ Stable | `GoogleOAuthClient`, `GmailApi`, `CalendarApi` |
 | **manifest** | `src-tauri/src/manifest/` | 4 | 510 | ✅ Stable | `Manifest`, `ManifestRegistry`, `Tool`, `Implementation` |
 | **mcp** | `src-tauri/src/mcp/` | 4 | 1,467 | ⚠️ WIP | MCP server implementation (standalone binary) |
 | **monitor** | `src-tauri/src/monitor/` | 1 | 462 | ✅ Stable | Activity logging, manifest stats |
 | **permissions** | `src-tauri/src/permissions/` | 12 | 1,085 | ✅ Stable | `Permission`, `PermissionStatus`, macOS TCC integration |
 | **profiles** | `src-tauri/src/profiles/` | 1 | 26 | ⚠️ Stub | User profiles (placeholder) |
-| **proxy** | `src-tauri/src/proxy/` | 4 | 623 | ✅ Stable | `ProxyServer`, `HandlerRegistry`, JSON-RPC protocol |
-| **proxy/handlers** | `src-tauri/src/proxy/handlers/` | 16 | 6,367 | ✅ Stable | All capability handlers (auth, gmail, calendar, etc.) |
+| **proxy** | `src-tauri/src/proxy/` | 3 | 623 | ✅ Stable | `ProxyServer`, `HandlerRegistry`, JSON-RPC protocol |
+| **proxy/handlers** | `src-tauri/src/proxy/handlers/` | 17 | 6,088 | ✅ Stable | All capability handlers + shared handler utilities |
 | **router** | `src-tauri/src/router/` | 5 | 736 | ✅ Stable | `CapabilityRouter`, routing dispatch logic |
-| **frontend/stores** | `src/stores/` | 5 | ~600 | ✅ Stable | Pinia stores: auth, config, permissions, profiles, monitor |
-| **frontend/views** | `src/views/` | 10 | 3,823 | ✅ Stable | All UI views (Auth, Permissions, Integrations, etc.) |
-| **frontend/composables** | `src/composables/` | 5 | 613 | ✅ Stable | Reactive utilities: toast, polling, activity feed, cache |
-| **frontend/components** | `src/components/` | 13 | ~900 | ✅ Stable | Reusable UI components (StatusBadge, TabNav, Toast, etc.) |
+| **frontend/stores** | `src/stores/` | 5 | 960 | ✅ Stable | Pinia stores: auth, config, permissions, profiles, monitor |
+| **frontend/views** | `src/views/` | 10 | 3,713 | ✅ Stable | All UI views (Auth, Permissions, Integrations, etc.) |
+| **frontend/composables** | `src/composables/` | 6 | 669 | ✅ Stable | Reactive utilities: toast, polling, activity feed, cache |
+| **frontend/components** | `src/components/` | 15 | 1,003 | ✅ Stable | Reusable UI components (StatusBadge, TabNav, Toast, etc.) |
+| **frontend/api** | `src/api/` | 2 | 320 | ✅ Stable | Typed API layer (`tairseach.ts`, `types.ts`) |
+| **frontend/workers** | `src/workers/` | 2 | 57 | ✅ Stable | Unified and legacy polling workers |
 
-**Total Rust:** ~15,500 lines  
-**Total Vue/TS:** ~6,600 lines
+**Total Rust:** ~16,669 lines  
+**Total Vue/TS:** ~6,722 lines
 
 ---
 
@@ -86,33 +88,44 @@ Tairseach is a **capability router** that bridges AI agents to macOS system APIs
 
 | Location | Utilities | Purpose |
 |----------|-----------|---------|
-| `src/api.ts` | `invoke()` typed wrappers | Type-safe Tauri IPC calls for all backend commands |
-| `composables/useToast.ts` | `useToast()`, `showToast()` | Global toast notification system |
-| `composables/useWorkerPoller.ts` | `useWorkerPoller()` | Web Worker-based polling (prevents UI blocking) |
-| `composables/useStatusPoller.ts` | `useStatusPoller()` | Proxy status polling with retry |
-| `composables/useActivityFeed.ts` | `useActivityFeed()` | Real-time activity event aggregation |
-| `composables/useStateCache.ts` | `useStateCache()` | Local storage caching for views |
+| `src/api/tairseach.ts` | Typed command wrappers (`authApi`, `permissionsApi`, etc.) | Type-safe Tauri IPC calls grouped by domain |
+| `src/api/types.ts` | Shared TypeScript request/response interfaces | Canonical frontend/backend contract types |
+| `src/composables/useToast.ts` | `useToast()`, `showToast()` | Global toast notification system |
+| `src/composables/useWorkerPoller.ts` | `useWorkerPoller()` | Unified Web Worker-based polling wrapper |
+| `src/composables/useStatusPoller.ts` | `useStatusPoller()` | Proxy status polling with retry |
+| `src/composables/useActivityFeed.ts` | `useActivityFeed()` | Real-time activity event aggregation |
+| `src/composables/useStateCache.ts` | `useStateCache()` | Local storage caching for views |
+| `src/workers/unified-poller.worker.ts` | Unified polling worker runtime | Consolidated background polling loop |
 
-**Pattern:** Use these utilities — DO NOT recreate them. If a helper doesn't exist, add it to `common.rs` or create a composable.
+**Pattern:** Use these utilities — DO NOT recreate them. If a helper doesn't exist, add it to `src-tauri/src/common/`, `src-tauri/src/proxy/handlers/common.rs`, `src/api/`, or a composable as appropriate.
 
 ---
 
-## 5. Active Branches
+## 5. Branch State
+
+All optimization and refactor branches have been merged into `main`.
 
 | Branch | Status | Purpose |
 |--------|--------|---------|
-| `main` | ✅ Stable | Production baseline |
-| `docs/ai-context` | 🚧 Active | This documentation system |
-| `refactor/handler-dry` | ✅ Merged | DRY handler utilities (completed 2026-02-13) |
-| `refactor/rust-core-dry` | ✅ Merged | Common module extraction (completed 2026-02-13) |
-| `refactor/permissions-dry` | ✅ Merged | Permission helper extraction (completed 2026-02-13) |
-| `refactor/google-dry` | ✅ Merged | Google client consolidation (completed 2026-02-13) |
-| `refactor/vue-dry` | 📦 Ready | Vue component/view DRY (needs merge) |
-| `refactor/vue-performance` | 📦 Ready | Vue performance optimizations (needs merge) |
-| `cleanup/dead-code-removal` | 📦 Ready | Remove unused code (needs audit) |
+| `main` | ✅ Active | Production baseline + merged optimization work |
+| `docs/ai-context` | ✅ Merged | AI context documentation updates |
+| `refactor/handler-dry` | ✅ Merged | DRY handler utilities |
+| `refactor/rust-core-dry` | ✅ Merged | Core utility extraction |
+| `refactor/permissions-dry` | ✅ Merged | Permission helper extraction |
+| `refactor/google-dry` | ✅ Merged | Google client consolidation |
+| `refactor/vue-dry` | ✅ Merged | Vue component/composable DRY pass |
+| `refactor/vue-performance` | ✅ Merged | Frontend polling/rendering optimization |
+| `cleanup/dead-code-removal` | ✅ Merged | Dead code cleanup |
 
-**Safe to build on:** `main`, `docs/ai-context`, `refactor/vue-dry`  
-**Do NOT modify:** Merged refactor branches (historical reference only)
+**Safe to build on:** `main`
+
+### Recent Changes (2026-02-13)
+
+- Optimization sprint complete; Phase B/C now in progress
+- `src-tauri/src/proxy/handlers/common.rs` is now the canonical DRY utility layer for handlers
+- Frontend polling is unified around `useWorkerPoller` + `src/workers/unified-poller.worker.ts`
+- Typed frontend API layer added under `src/api/` (`tairseach.ts`, `types.ts`)
+- AI context docs updated to reflect merged branch state and current codebase size
 
 ---
 
@@ -273,16 +286,17 @@ tairseach/
 │   ├── permissions/         # macOS TCC permission checks
 │   ├── profiles/            # User profiles (stub)
 │   ├── proxy/               # Unix socket server + JSON-RPC protocol
-│   │   └── handlers/        # All capability handlers (15 files)
+│   │   └── handlers/        # All capability handlers + shared `common.rs` utilities
 │   ├── router/              # Capability routing dispatcher
 │   ├── lib.rs               # Tauri app entry point
 │   └── main.rs              # Tauri binary entry point
 ├── src/                     # Vue 3 frontend
+│   ├── api/                 # Typed API layer (`tairseach.ts`, `types.ts`)
 │   ├── views/               # 10 main views
 │   ├── components/          # Reusable components (common, config)
 │   ├── stores/              # Pinia stores (auth, config, permissions, monitor, profiles)
 │   ├── composables/         # Vue composables (toast, polling, activity, cache)
-│   ├── workers/             # Web Workers (status polling, unified polling)
+│   ├── workers/             # Web Workers (unified polling + legacy status poller)
 │   ├── router/              # Vue Router
 │   └── main.ts              # Vue app entry point
 ├── crates/

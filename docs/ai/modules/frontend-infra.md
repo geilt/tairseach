@@ -1,7 +1,7 @@
 # Frontend Infrastructure
 
-> **Location:** `src/` (stores, composables, workers, components, router)  
-> **Lines:** ~2,200  
+> **Location:** `src/` (stores, composables, workers, components, router, api)  
+> **Lines:** ~3,000+  
 > **Purpose:** Vue 3 state management, reactive utilities, background workers
 
 ---
@@ -29,14 +29,16 @@ src/
 │   ├── useActivityFeed.ts    # Real-time activity aggregation
 │   └── useStateCache.ts      # LocalStorage caching
 ├── workers/             # Web Workers
-│   ├── unified-poller.worker.ts   # Unified background poller
-│   └── status-poller.worker.ts    # Legacy status poller
+│   ├── unified-poller.worker.ts   # Unified background poller (default)
+│   └── status-poller.worker.ts    # Legacy/minimal status worker
 ├── components/          # Shared Vue components
 │   ├── common/          # Generic UI components
 │   └── config/          # Config-specific components
 ├── router/              # Vue Router
 │   └── index.ts
-├── api.ts               # Typed Tauri IPC wrappers
+├── api/                 # Typed Tauri IPC layer
+│   ├── tairseach.ts     # Domain APIs (auth, permissions, monitor, etc.)
+│   └── types.ts         # Shared frontend contract types
 └── main.ts              # Vue app entry point
 ```
 
@@ -215,7 +217,7 @@ export function useActivityFeed() {
 
 ### unified-poller.worker.ts
 
-Background poller for activity events:
+Canonical background poller (primary worker) for activity/status polling:
 
 ```typescript
 let intervalId: number | null = null
@@ -238,38 +240,14 @@ self.onmessage = async (e) => {
 
 ## Typed API Layer
 
-### api.ts
+### `src/api/` (`tairseach.ts` + `types.ts`)
 
-Type-safe Tauri IPC wrappers:
+Type-safe Tauri IPC wrappers are now split into a dedicated API module:
 
-```typescript
-import { invoke as tauriInvoke } from '@tauri-apps/api/tauri'
+- `src/api/tairseach.ts` — grouped, typed command wrappers by domain
+- `src/api/types.ts` — shared request/response interfaces used across stores/views/composables
 
-export async function invoke<T = any>(
-  command: string,
-  args?: Record<string, any>
-): Promise<T> {
-  try {
-    return await tauriInvoke(command, args)
-  } catch (error) {
-    console.error(`IPC Error [${command}]:`, error)
-    throw error
-  }
-}
-
-// Typed helpers
-export const authApi = {
-  providers: () => invoke<string[]>('auth_providers'),
-  accounts: (provider?: string) => invoke<Account[]>('auth_accounts', { provider }),
-  startOAuth: (params: OAuthParams) => invoke<string>('auth_start_google_oauth', params),
-}
-
-export const permissionsApi = {
-  getAll: () => invoke<Permission[]>('get_permissions'),
-  request: (id: string) => invoke<Permission>('request_permission', { id }),
-  openSettings: (id: string) => invoke<void>('open_permission_settings', { id }),
-}
-```
+This keeps view/store code thin and enforces a single contract surface between frontend and backend.
 
 ---
 

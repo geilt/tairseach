@@ -1,8 +1,8 @@
 # Handlers Module
 
 > **Location:** `src-tauri/src/proxy/handlers/`  
-> **Files:** 17 (16 handlers + `mod.rs`)  
-> **Lines:** 6,367  
+> **Files:** 17 (15 handlers + `mod.rs` + shared `common.rs`)  
+> **Lines:** 6,088  
 > **Purpose:** JSON-RPC method handlers for all capabilities
 
 ---
@@ -23,8 +23,8 @@ Handlers receive JSON-RPC requests from the Unix socket proxy server and execute
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `mod.rs` | ~400 | Handler registry + permission middleware |
-| `common.rs` | ~380 | **Shared utilities** — param extraction, auth helpers, response builders |
+| `mod.rs` | ~321 | Handler registry + permission middleware |
+| `common.rs` | ~321 | **Canonical DRY utility layer** — shared param extraction, auth helpers, response builders |
 | `auth.rs` | ~450 | Auth broker methods: token get/refresh/revoke, credential CRUD |
 | `automation.rs` | ~200 | macOS UI automation via AppleScript/Accessibility |
 | `calendar.rs` | ~180 | macOS Calendar API (EventKit FFI) |
@@ -386,14 +386,13 @@ let client = create_http_client()?;  // YES
 **Branch:** `refactor/handler-dry` (merged 2026-02-13)
 
 **Changes:**
-- Extracted all param helpers to `common.rs`
-- Added alias fallback helpers (`require_string_or`, etc.)
-- Extracted OAuth pattern helpers (`get_auth_broker`, `extract_oauth_credentials`)
-- Standardized response construction
-- Removed ~500 lines of duplicated code across handlers
+- Consolidated parameter parsing, OAuth extraction, and response builders in `common.rs`
+- Added alias-fallback helpers (`require_string_or`, `optional_*_or`) to reduce field-name drift bugs
+- Standardized `ok()/error()/invalid_params()` flow across handlers
+- Removed duplicated extraction/auth boilerplate and aligned handlers to one shared contract
 
-**Before:** Each handler had its own param extraction logic  
-**After:** All handlers use `common.rs` utilities
+**Before:** Multiple handlers repeated bespoke extraction/auth patterns  
+**After:** DRY-by-default handler implementation through `proxy/handlers/common.rs`
 
 ---
 
