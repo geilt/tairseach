@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useActivityFeed, type ActivityEntry } from '@/composables/useActivityFeed'
 import SectionHeader from '@/components/common/SectionHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
@@ -58,6 +58,14 @@ watch(
     }
   },
 )
+
+
+onUnmounted(() => {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+})
 
 function rowClass(item: ActivityEntry) {
   switch (item.operationType) {

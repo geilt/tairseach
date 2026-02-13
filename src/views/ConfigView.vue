@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onActivated, ref, computed } from 'vue'
+import { onActivated, onMounted, onUnmounted, ref, computed } from 'vue'
 import { useConfigStore } from '../stores/config'
 import type { ExecApproval } from '../stores/config'
 import ConfigSection from '../components/config/ConfigSection.vue'
@@ -16,6 +16,7 @@ const store = useConfigStore()
 const newAgentId = ref('')
 const showAddAgent = ref(false)
 const saveMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+let saveMessageTimer: number | null = null
 const newApprovalPattern = ref('')
 
 onMounted(async () => {
@@ -29,6 +30,14 @@ onActivated(() => {
   if (store.isNode) {
     void store.loadNodeConfig({ silent: true })
     void store.loadExecApprovals({ silent: true })
+  }
+})
+
+
+onUnmounted(() => {
+  if (saveMessageTimer) {
+    clearTimeout(saveMessageTimer)
+    saveMessageTimer = null
   }
 })
 
@@ -107,7 +116,11 @@ async function saveConfig() {
   try {
     await store.saveConfig()
     saveMessage.value = { type: 'success', text: 'Configuration saved successfully!' }
-    setTimeout(() => saveMessage.value = null, 3000)
+    if (saveMessageTimer) clearTimeout(saveMessageTimer)
+    saveMessageTimer = window.setTimeout(() => {
+      saveMessage.value = null
+      saveMessageTimer = null
+    }, 3000)
   } catch (e) {
     saveMessage.value = { type: 'error', text: String(e) }
   }

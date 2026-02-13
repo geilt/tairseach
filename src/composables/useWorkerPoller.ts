@@ -5,8 +5,8 @@
  * All UI state updates go through requestAnimationFrame.
  */
 
+import { invoke } from '@tauri-apps/api/core'
 import { ref, onMounted, onUnmounted, type Ref } from 'vue'
-import { api } from '@/api/tairseach'
 
 interface ProxyStatus {
   running: boolean
@@ -33,21 +33,22 @@ export function useWorkerPoller(intervalMs = 15000): UseWorkerPollerReturn {
   const namespaceStatuses = ref<NamespaceStatus[]>([])
   
   let worker: Worker | null = null
+  let rafId: number | null = null
   
   function handleWorkerMessage(e: MessageEvent) {
     const msg = e.data
     
     if (msg.type === 'invoke') {
       // Bridge: Worker wants to call Tauri invoke
-      api.system.invokeCommand<unknown>(msg.command, msg.params || {})
-        .then(result => {
+      invoke<unknown>(msg.command, msg.params || {})
+        .then((result: unknown) => {
           worker?.postMessage({
             type: 'invoke-result',
             id: msg.id,
             result
           })
         })
-        .catch(error => {
+        .catch((error: unknown) => {
           worker?.postMessage({
             type: 'invoke-result',
             id: msg.id,
@@ -56,8 +57,13 @@ export function useWorkerPoller(intervalMs = 15000): UseWorkerPollerReturn {
         })
     }
     else if (msg.type === 'status-update') {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+      }
+
       // Apply state updates in next animation frame
-      requestAnimationFrame(() => {
+      rafId = requestAnimationFrame(() => {
+        rafId = null
         proxyStatus.value = msg.data.proxyStatus
         socketAlive.value = msg.data.socketAlive
         namespaceStatuses.value = msg.data.namespaceStatuses
@@ -86,6 +92,11 @@ export function useWorkerPoller(intervalMs = 15000): UseWorkerPollerReturn {
   })
   
   onUnmounted(() => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+
     if (worker) {
       worker.postMessage({ type: 'stop' })
       worker.terminate()

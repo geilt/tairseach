@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue'
-import { api } from '@/api/tairseach'
-import type { GoogleStatus } from '@/api/types'
+import { invoke } from '@tauri-apps/api/core'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+
+interface GoogleStatus {
+  status: 'connected' | 'not_configured' | 'token_expired' | string
+  configured: boolean
+  has_token: boolean
+  message: string
+}
+
+interface GoogleConfig {
+  client_id: string
+  client_secret: string
+  updated_at: string
+}
 
 const clientId = ref('')
 const clientSecret = ref('')
@@ -11,6 +23,7 @@ const saving = ref(false)
 const testing = ref(false)
 const status = shallowRef<GoogleStatus | null>(null)
 const feedback = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+let feedbackTimer: number | null = null
 
 const instructionsOpen = ref(false)
 const instructionsStorageKey = 'tairseach-google-setup-open'
@@ -24,15 +37,17 @@ const statusTone = computed(() => {
 
 function setFeedback(type: 'success' | 'error', text: string) {
   feedback.value = { type, text }
-  window.setTimeout(() => {
+  if (feedbackTimer) clearTimeout(feedbackTimer)
+  feedbackTimer = window.setTimeout(() => {
     if (feedback.value?.text === text) feedback.value = null
+    feedbackTimer = null
   }, 3200)
 }
 
 async function loadCurrent() {
   const [cfg, st] = await Promise.all([
-    api.google.getConfig(),
-    api.google.getStatus(),
+    invoke<GoogleConfig | null>('get_google_oauth_config'),
+    invoke<GoogleStatus>('get_google_oauth_status'),
   ])
 
   if (cfg) {
@@ -92,7 +107,10 @@ async function saveCredentials() {
 
   saving.value = true
   try {
-    await api.google.saveConfig(clientId.value, clientSecret.value)
+    await invoke('save_google_oauth_config', {
+      clientId: clientId.value,
+      clientSecret: clientSecret.value,
+    })
     await loadCurrent()
     setFeedback('success', 'Google OAuth credentials saved.')
   } catch (err) {
@@ -105,7 +123,10 @@ async function saveCredentials() {
 async function testConnection() {
   testing.value = true
   try {
-    const result = await api.google.testConfig(clientId.value, clientSecret.value)
+    const result = await invoke<{ ok: boolean; message: string; error?: string }>('test_google_oauth_config', {
+      clientId: clientId.value,
+      clientSecret: clientSecret.value,
+    })
 
     await loadCurrent()
     if (result.ok) {
@@ -124,6 +145,14 @@ function toggleInstructions() {
   instructionsOpen.value = !instructionsOpen.value
   localStorage.setItem(instructionsStorageKey, instructionsOpen.value ? '1' : '0')
 }
+
+
+onUnmounted(() => {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer)
+    feedbackTimer = null
+  }
+})
 
 onMounted(async () => {
   instructionsOpen.value = localStorage.getItem(instructionsStorageKey) === '1'
