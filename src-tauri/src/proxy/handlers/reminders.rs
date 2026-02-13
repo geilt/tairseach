@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Reminder list representation
@@ -40,7 +41,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "complete" => handle_complete_reminder(params, id).await,
         "uncomplete" => handle_uncomplete_reminder(params, id).await,
         "delete" => handle_delete_reminder(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("reminders.{}", action)),
+        _ => method_not_found(id, &format!("reminders.{}", action)),
     }
 }
 
@@ -48,7 +49,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 async fn handle_list_reminder_lists(_params: &Value, id: Value) -> JsonRpcResponse {
     let lists = fetch_reminder_lists().await;
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "lists": lists,
@@ -59,12 +60,12 @@ async fn handle_list_reminder_lists(_params: &Value, id: Value) -> JsonRpcRespon
 
 /// List reminders in a specific list
 async fn handle_list_reminders(params: &Value, id: Value) -> JsonRpcResponse {
-    let list_id = params.get("listId").and_then(|v| v.as_str());
-    let include_completed = params.get("includeCompleted").and_then(|v| v.as_bool()).unwrap_or(false);
+    let list_id = optional_string(params, "listId");
+    let include_completed = bool_with_default(params, "includeCompleted", false);
     
     let reminders = fetch_reminders(list_id, include_completed).await;
     
-    JsonRpcResponse::success(
+    ok(
         id,
         serde_json::json!({
             "reminders": reminders,
