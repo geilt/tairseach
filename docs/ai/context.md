@@ -59,7 +59,7 @@ Tairseach is a **capability router** that bridges AI agents to macOS system APIs
 | **router** | `src-tauri/src/router/` | 5 | 736 | ✅ Stable | `CapabilityRouter`, routing dispatch logic |
 | **frontend/stores** | `src/stores/` | 5 | ~600 | ✅ Stable | Pinia stores: auth, config, permissions, profiles, monitor |
 | **frontend/views** | `src/views/` | 10 | 3,823 | ✅ Stable | All UI views (Auth, Permissions, Integrations, etc.) |
-| **frontend/composables** | `src/composables/` | 5 | ~700 | ✅ Stable | Reactive utilities: toast, polling, activity feed, cache |
+| **frontend/composables** | `src/composables/` | 5 | 613 | ✅ Stable | Reactive utilities: toast, polling, activity feed, cache |
 | **frontend/components** | `src/components/` | 13 | ~900 | ✅ Stable | Reusable UI components (StatusBadge, TabNav, Toast, etc.) |
 
 **Total Rust:** ~15,500 lines  
