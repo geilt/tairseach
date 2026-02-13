@@ -6,6 +6,7 @@ import { usePermissionsStore } from '../stores/permissions'
 const store = usePermissionsStore()
 
 const refreshTimer = ref<number | null>(null)
+const flashTimers = new Set<number>()
 
 // Load cached state first, then soft refresh in background.
 onMounted(async () => {
@@ -26,6 +27,11 @@ onUnmounted(() => {
     clearInterval(refreshTimer.value)
     refreshTimer.value = null
   }
+
+  for (const timer of flashTimers) {
+    clearTimeout(timer)
+  }
+  flashTimers.clear()
 })
 
 // Combine permissions with their icons from definitions
@@ -56,9 +62,11 @@ watch(
       const before = prevMap.get(p.id)
       if (before && before !== p.status) {
         flashById.value = { ...flashById.value, [p.id]: true }
-        window.setTimeout(() => {
+        const timer = window.setTimeout(() => {
           flashById.value = { ...flashById.value, [p.id]: false }
+          flashTimers.delete(timer)
         }, 900)
+        flashTimers.add(timer)
       }
     }
   },

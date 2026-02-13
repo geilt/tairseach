@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useActivityFeed, type ActivityEntry } from '@/composables/useActivityFeed'
 
 const { entries, namespaces, loading, lastUpdated } = useActivityFeed(4000)
@@ -55,6 +55,14 @@ watch(
     }
   },
 )
+
+
+onUnmounted(() => {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+})
 
 function rowClass(item: ActivityEntry) {
   switch (item.operationType) {

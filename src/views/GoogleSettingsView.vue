@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 
 interface GoogleStatus {
   status: 'connected' | 'not_configured' | 'token_expired' | string
@@ -23,6 +23,7 @@ const saving = ref(false)
 const testing = ref(false)
 const status = shallowRef<GoogleStatus | null>(null)
 const feedback = ref<{ type: 'success' | 'error'; text: string } | null>(null)
+let feedbackTimer: number | null = null
 
 const instructionsOpen = ref(false)
 const instructionsStorageKey = 'tairseach-google-setup-open'
@@ -36,8 +37,10 @@ const statusTone = computed(() => {
 
 function setFeedback(type: 'success' | 'error', text: string) {
   feedback.value = { type, text }
-  window.setTimeout(() => {
+  if (feedbackTimer) clearTimeout(feedbackTimer)
+  feedbackTimer = window.setTimeout(() => {
     if (feedback.value?.text === text) feedback.value = null
+    feedbackTimer = null
   }, 3200)
 }
 
@@ -142,6 +145,14 @@ function toggleInstructions() {
   instructionsOpen.value = !instructionsOpen.value
   localStorage.setItem(instructionsStorageKey, instructionsOpen.value ? '1' : '0')
 }
+
+
+onUnmounted(() => {
+  if (feedbackTimer) {
+    clearTimeout(feedbackTimer)
+    feedbackTimer = null
+  }
+})
 
 onMounted(async () => {
   instructionsOpen.value = localStorage.getItem(instructionsStorageKey) === '1'

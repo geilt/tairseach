@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onActivated, ref } from 'vue'
+import { computed, onActivated, onMounted, onUnmounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '@/stores/auth'
 import type { AccountInfo } from '@/stores/auth'
@@ -41,6 +41,15 @@ interface Vault {
 const store = useAuthStore()
 const actionMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 const isConnectingOAuth = ref(false)
+let actionMessageTimer: number | null = null
+
+function scheduleActionMessageClear(delayMs = 3000) {
+  if (actionMessageTimer) clearTimeout(actionMessageTimer)
+  actionMessageTimer = window.setTimeout(() => {
+    actionMessage.value = null
+    actionMessageTimer = null
+  }, delayMs)
+}
 
 // Credential types
 const credentialTypes = ref<CredentialType[]>([])
@@ -64,6 +73,14 @@ const showCustomTypeForm = ref(false)
 const customTypeName = ref('')
 const customTypeDisplayName = ref('')
 const customTypeFields = ref<CredentialField[]>([])
+
+
+onUnmounted(() => {
+  if (actionMessageTimer) {
+    clearTimeout(actionMessageTimer)
+    actionMessageTimer = null
+  }
+})
 
 // ═══════════════════════════════════════════════════════════════
 // COMPUTED
@@ -423,7 +440,7 @@ async function handleRefresh(account: AccountInfo) {
     } else {
       actionMessage.value = { type: 'error', text: store.error || 'Refresh failed' }
     }
-    setTimeout(() => actionMessage.value = null, 3000)
+    scheduleActionMessageClear(3000)
   })
 }
 
@@ -457,7 +474,7 @@ async function handleRevoke(account: AccountInfo) {
     } else {
       actionMessage.value = { type: 'error', text: store.error || 'Delete failed' }
     }
-    setTimeout(() => actionMessage.value = null, 3000)
+    scheduleActionMessageClear(3000)
   })
 }
 
@@ -485,7 +502,7 @@ async function handleConnectGoogle() {
     await store.loadAccounts()
     
     requestAnimationFrame(() => {
-      setTimeout(() => actionMessage.value = null, 5000)
+      scheduleActionMessageClear(5000)
     })
   } catch (e) {
     requestAnimationFrame(() => {
@@ -494,7 +511,7 @@ async function handleConnectGoogle() {
         text: `OAuth failed: ${e}`,
       }
       isConnectingOAuth.value = false
-      setTimeout(() => actionMessage.value = null, 5000)
+      scheduleActionMessageClear(5000)
     })
   }
 }
@@ -505,7 +522,7 @@ async function handleConnectGoogle() {
 
 function setFeedback(type: 'success' | 'error', text: string) {
   actionMessage.value = { type, text }
-  setTimeout(() => actionMessage.value = null, 3000)
+  scheduleActionMessageClear(3000)
 }
 </script>
 

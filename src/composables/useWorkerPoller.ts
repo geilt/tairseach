@@ -1,11 +1,12 @@
 /**
  * Worker-based Status Poller Composable
- *
- * Uses unified worker registrations and batches UI writes with requestAnimationFrame.
+ * 
+ * Bridges between the Web Worker (scheduling) and Tauri invoke() (main thread).
+ * All UI state updates go through requestAnimationFrame.
  */
 
-import { ref, onMounted, onScopeDispose, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { ref, onMounted, onUnmounted, type Ref } from 'vue'
 
 interface ProxyStatus {
   running: boolean
@@ -18,12 +19,6 @@ export interface NamespaceStatus {
   tool_count: number
 }
 
-interface PollPayload {
-  proxyStatus: ProxyStatus
-  socketAlive: boolean
-  namespaceStatuses: NamespaceStatus[]
-}
-
 interface UseWorkerPollerReturn {
   proxyStatus: Ref<ProxyStatus>
   socketAlive: Ref<boolean>
@@ -32,115 +27,87 @@ interface UseWorkerPollerReturn {
   refresh: () => void
 }
 
-const STATUS_POLL_CALLBACK_ID = 'status-poll'
-
-function makeRegistrationId() {
-  return `status-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
 export function useWorkerPoller(intervalMs = 15000): UseWorkerPollerReturn {
   const proxyStatus = ref<ProxyStatus>({ running: false })
   const socketAlive = ref(false)
   const namespaceStatuses = ref<NamespaceStatus[]>([])
-
+  
   let worker: Worker | null = null
-  let registrationId: string | null = null
   let rafId: number | null = null
-
-  function applyPayload(payload: PollPayload) {
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId)
-      rafId = null
-    }
-
-    rafId = requestAnimationFrame(() => {
-      proxyStatus.value = payload.proxyStatus
-      socketAlive.value = payload.socketAlive
-      namespaceStatuses.value = payload.namespaceStatuses
-      rafId = null
-    })
-  }
-
+  
   function handleWorkerMessage(e: MessageEvent) {
     const msg = e.data
-
+    
     if (msg.type === 'invoke') {
-      invoke(msg.command, msg.params || {})
+      // Bridge: Worker wants to call Tauri invoke
+      invoke<unknown>(msg.command, msg.params || {})
         .then((result: unknown) => {
           worker?.postMessage({
             type: 'invoke-result',
-            requestId: msg.requestId,
-            result,
+            id: msg.id,
+            result
           })
         })
         .catch((error: unknown) => {
           worker?.postMessage({
             type: 'invoke-result',
-            requestId: msg.requestId,
-            error: String(error),
+            id: msg.id,
+            error: String(error)
           })
         })
-      return
     }
+    else if (msg.type === 'status-update') {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+      }
 
-    if (msg.type === 'poll-result' && msg.registrationId === registrationId && msg.callbackId === STATUS_POLL_CALLBACK_ID) {
-      applyPayload(msg.payload as PollPayload)
-      return
-    }
-
-    if (msg.type === 'poll-error' && msg.registrationId === registrationId) {
-      console.warn('Unified poller worker error:', msg.error)
+      // Apply state updates in next animation frame
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        proxyStatus.value = msg.data.proxyStatus
+        socketAlive.value = msg.data.socketAlive
+        namespaceStatuses.value = msg.data.namespaceStatuses
+      })
     }
   }
-
+  
   function refresh() {
-    if (!worker || !registrationId) return
-    worker.postMessage({ type: 'trigger', registrationId })
+    // Stop and restart to trigger immediate poll
+    if (worker) {
+      worker.postMessage({ type: 'stop' })
+      worker.postMessage({ type: 'start', intervalMs })
+    }
   }
-
+  
   onMounted(() => {
-    worker = new Worker(new URL('../workers/unified-poller.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+    worker = new Worker(
+      new URL('../workers/status-poller.worker.ts', import.meta.url),
+      { type: 'module' }
+    )
     worker.onmessage = handleWorkerMessage
     worker.onerror = (e) => {
-      console.error('Unified poller worker error:', e)
+      console.error('Status poller worker error:', e)
     }
-
-    registrationId = makeRegistrationId()
-
-    worker.postMessage({
-      type: 'register',
-      registrationId,
-      intervalMs,
-      callbackId: STATUS_POLL_CALLBACK_ID,
-      immediate: true,
-    })
+    worker.postMessage({ type: 'start', intervalMs })
   })
-
-  onScopeDispose(() => {
+  
+  onUnmounted(() => {
     if (rafId !== null) {
       cancelAnimationFrame(rafId)
       rafId = null
     }
 
-    if (worker && registrationId) {
-      worker.postMessage({ type: 'unregister', registrationId })
-    }
-
     if (worker) {
-      worker.postMessage({ type: 'stop-all' })
+      worker.postMessage({ type: 'stop' })
       worker.terminate()
       worker = null
     }
-
-    registrationId = null
   })
-
+  
   return {
     proxyStatus,
     socketAlive,
     namespaceStatuses,
-    refresh,
+    refresh
   }
 }

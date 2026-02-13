@@ -1,4 +1,4 @@
-import { ref, readonly } from 'vue'
+import { onScopeDispose, ref, readonly } from 'vue'
 
 export interface Toast {
   id: string
@@ -9,6 +9,14 @@ export interface Toast {
 
 const toasts = ref<Toast[]>([])
 let toastId = 0
+const toastTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+function clearToastTimer(id: string) {
+  const timer = toastTimers.get(id)
+  if (!timer) return
+  clearTimeout(timer)
+  toastTimers.delete(id)
+}
 
 function addToast(
   message: string,
@@ -16,23 +24,26 @@ function addToast(
   duration = 5000
 ) {
   const id = `toast-${++toastId}`
-  
+
   toasts.value.push({ id, message, variant, duration })
-  
+
   // Auto-dismiss
   if (duration > 0) {
-    setTimeout(() => removeToast(id), duration)
+    const timer = setTimeout(() => removeToast(id), duration)
+    toastTimers.set(id, timer)
   }
-  
+
   // Limit stack
   if (toasts.value.length > 5) {
-    toasts.value.shift()
+    const removed = toasts.value.shift()
+    if (removed) clearToastTimer(removed.id)
   }
-  
+
   return id
 }
 
 function removeToast(id: string) {
+  clearToastTimer(id)
   const index = toasts.value.findIndex(t => t.id === id)
   if (index !== -1) {
     toasts.value.splice(index, 1)
@@ -40,6 +51,13 @@ function removeToast(id: string) {
 }
 
 export function useToast() {
+  onScopeDispose(() => {
+    for (const timer of toastTimers.values()) {
+      clearTimeout(timer)
+    }
+    toastTimers.clear()
+  })
+
   return {
     toasts: readonly(toasts),
     success: (message: string, duration?: number) => addToast(message, 'success', duration),
