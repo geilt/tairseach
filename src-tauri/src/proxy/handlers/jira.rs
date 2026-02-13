@@ -4,40 +4,10 @@
 //! Retrieves API token (basic auth: email + token) from auth broker.
 
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
 use super::common::*;
 use super::super::protocol::JsonRpcResponse;
-use crate::auth::AuthBroker;
-
-/// Global auth broker instance.
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialise the auth broker.
-async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
-    AUTH_BROKER
-        .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
-        })
-        .await
-        .map_err(|e| {
-            error!("Failed to initialise auth broker: {}", e);
-            JsonRpcResponse::error(
-                Value::Null,
-                crate::auth::error_codes::MASTER_KEY_NOT_INITIALIZED,
-                format!("Auth broker init failed: {}", e),
-                None,
-            )
-        })
-}
 
 /// Jira API client
 struct JiraApi {
@@ -242,7 +212,7 @@ impl JiraApi {
 
 /// Handle Jira-related methods
 pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse {
-    let auth_broker = match get_broker().await {
+    let auth_broker = match get_auth_broker().await {
         Ok(broker) => broker,
         Err(mut resp) => {
             resp.id = id;
@@ -277,7 +247,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     };
 
     // Create API client
-    let api = match JiraApi::new(email.to_string(), api_token, base_url) {
+    let api = match JiraApi::new(email.to_string(), api_token, base_url.to_string()) {
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create Jira API client: {}", e);

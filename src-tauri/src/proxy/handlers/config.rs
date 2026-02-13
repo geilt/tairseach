@@ -15,12 +15,12 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
     match action {
         "get" => handle_get(params, id).await,
         "set" => handle_set(params, id).await,
-        "environment" => handle_environment(params, id).await,
-        "getNodeConfig" => handle_get_node_config(params, id).await,
+        "environment" => handle_environment(id).await,
+        "getNodeConfig" => handle_get_node_config(id).await,
         "setNodeConfig" => handle_set_node_config(params, id).await,
-        "getExecApprovals" => handle_get_exec_approvals(params, id).await,
+        "getExecApprovals" => handle_get_exec_approvals(id).await,
         "setExecApprovals" => handle_set_exec_approvals(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("config.{}", action)),
+        _ => method_not_found(id, &format!("config.{}", action)),
     }
 }
 
@@ -205,7 +205,7 @@ fn merge_json(base: &Value, overlay: &Value) -> Value {
 }
 
 /// `config.environment` — detect gateway vs node environment
-async fn handle_environment(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_environment(id: Value) -> JsonRpcResponse {
     let base = dirs::home_dir()
         .expect("Could not find home directory")
         .join(".openclaw");
@@ -255,7 +255,7 @@ async fn handle_environment(_params: &Value, id: Value) -> JsonRpcResponse {
 }
 
 /// `config.getNodeConfig` — read node.json
-async fn handle_get_node_config(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_get_node_config(id: Value) -> JsonRpcResponse {
     let node_path = get_node_config_path();
     
     if !node_path.exists() {
@@ -332,7 +332,7 @@ async fn handle_set_node_config(params: &Value, id: Value) -> JsonRpcResponse {
 }
 
 /// `config.getExecApprovals` — read exec-approvals.json
-async fn handle_get_exec_approvals(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_get_exec_approvals(id: Value) -> JsonRpcResponse {
     let approvals_path = get_exec_approvals_path();
     
     if !approvals_path.exists() {

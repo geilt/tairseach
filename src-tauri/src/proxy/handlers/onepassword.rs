@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::sync::OnceCell;
 use tokio::time::timeout;
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
 use super::common::*;
@@ -45,7 +45,7 @@ async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
 
 /// Retrieve the SA token from the auth broker
 async fn get_sa_token(params: &Value) -> Result<String, JsonRpcResponse> {
-    let auth_broker = get_broker().await?;
+    let auth_broker = get_auth_broker().await?;
 
     let explicit_account = optional_string(params, "account");
 

@@ -41,18 +41,18 @@ pub struct Event {
 /// Handle calendar-related methods
 pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse {
     match action {
-        "list" => handle_list_calendars(params, id).await,
+        "list" => handle_list_calendars(id).await,
         "events" => handle_list_events(params, id).await,
         "getEvent" => handle_get_event(params, id).await,
         "createEvent" => handle_create_event(params, id).await,
         "updateEvent" => handle_update_event(params, id).await,
         "deleteEvent" => handle_delete_event(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("calendar.{}", action)),
+        _ => method_not_found(id, &format!("calendar.{}", action)),
     }
 }
 
 /// List all calendars
-async fn handle_list_calendars(_params: &Value, id: Value) -> JsonRpcResponse {
+async fn handle_list_calendars(id: Value) -> JsonRpcResponse {
     let calendars = fetch_calendars().await;
     
     ok(
