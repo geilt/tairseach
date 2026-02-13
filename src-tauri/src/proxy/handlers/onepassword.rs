@@ -89,14 +89,7 @@ async fn get_sa_token(params: &Value) -> Result<String, JsonRpcResponse> {
 
 /// Locate the op-helper binary
 fn get_op_helper_path() -> Result<PathBuf, String> {
-    // In development: src-tauri/bin/op-helper
-    // In production bundle: may need to adjust based on Tauri bundle structure
-    let dev_path = PathBuf::from("src-tauri/bin/op-helper");
-    if dev_path.exists() {
-        return Ok(dev_path);
-    }
-
-    // Try relative to executable (for bundled app)
+    // Try relative to executable first (bundled app: Contents/MacOS/op-helper)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let bundled_path = exe_dir.join("op-helper");
@@ -104,6 +97,12 @@ fn get_op_helper_path() -> Result<PathBuf, String> {
                 return Ok(bundled_path);
             }
         }
+    }
+
+    // Development fallback: src-tauri/bin/op-helper
+    let dev_path = PathBuf::from("src-tauri/bin/op-helper");
+    if dev_path.exists() {
+        return Ok(dev_path);
     }
 
     Err("op-helper binary not found".to_string())

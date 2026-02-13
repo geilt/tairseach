@@ -29,7 +29,8 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/tairseach-mcp"
+      "binaries/tairseach-mcp",
+      "binaries/op-helper"
     ],
     "icon": [
       "icons/32x32.png",
