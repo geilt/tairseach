@@ -4,40 +4,11 @@
 //! Retrieves OAuth tokens from auth broker and uses Google API client.
 
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
-use crate::auth::AuthBroker;
 use crate::google::GmailApi;
-
-/// Global auth broker instance.
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialise the auth broker.
-async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
-    AUTH_BROKER
-        .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
-        })
-        .await
-        .map_err(|e| {
-            error!("Failed to initialise auth broker: {}", e);
-            JsonRpcResponse::error(
-                Value::Null,
-                crate::auth::error_codes::MASTER_KEY_NOT_INITIALIZED,
-                format!("Auth broker init failed: {}", e),
-                None,
-            )
-        })
-}
 
 /// Handle Gmail-related methods
 pub async fn handle(
@@ -45,17 +16,20 @@ pub async fn handle(
     params: &Value,
     id: Value,
 ) -> JsonRpcResponse {
-    let auth_broker = match get_broker().await {
+    let auth_broker = match get_auth_broker().await {
         Ok(broker) => broker,
         Err(mut resp) => {
             resp.id = id;
             return resp;
         }
     };
-    // Retrieve OAuth token from auth broker
-    let (provider, account) = match extract_credentials(params) {
+    
+    let (provider, account) = match extract_oauth_credentials(params, "google") {
         Ok(creds) => creds,
-        Err(response) => return response,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
     };
 
     let token_data = match auth_broker
@@ -72,20 +46,13 @@ pub async fn handle(
         Ok(data) => data,
         Err((code, msg)) => {
             error!("Failed to get OAuth token: {}", msg);
-            return JsonRpcResponse::error(id, code, msg, None);
+            return error(id, code, msg);
         }
     };
 
-    let access_token = match token_data.get("access_token").and_then(|v| v.as_str()) {
-        Some(token) => token.to_string(),
-        None => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                "Invalid token response: missing access_token".to_string(),
-                None,
-            );
-        }
+    let access_token = match extract_access_token(&token_data, &id) {
+        Ok(token) => token,
+        Err(response) => return response,
     };
 
     // Create Gmail API client
@@ -93,7 +60,7 @@ pub async fn handle(
         Ok(api) => api,
         Err(e) => {
             error!("Failed to create Gmail API client: {}", e);
-            return JsonRpcResponse::error(id, -32000, e, None);
+            return generic_error(id, e);
         }
     };
 
@@ -106,30 +73,8 @@ pub async fn handle(
         "modify_message" | "modifyMessage" => handle_modify_message(params, id, gmail).await,
         "trash_message" | "trashMessage" => handle_trash_message(params, id, gmail).await,
         "delete_message" | "deleteMessage" => handle_delete_message(params, id, gmail).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("gmail.{}", action)),
+        _ => method_not_found(id, &format!("gmail.{}", action)),
     }
-}
-
-/// Extract credential provider and account from params
-fn extract_credentials(params: &Value) -> Result<(String, String), JsonRpcResponse> {
-    let provider = params
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("google")
-        .to_string();
-
-    let account = params
-        .get("account")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            JsonRpcResponse::invalid_params(
-                Value::Null,
-                "Missing required parameter: account (Google email address)",
-            )
-        })?
-        .to_string();
-
-    Ok((provider, account))
 }
 
 async fn handle_list_messages(
@@ -139,27 +84,14 @@ async fn handle_list_messages(
 ) -> JsonRpcResponse {
     info!("Handling gmail.list_messages");
 
-    let query = params.get("query").and_then(|v| v.as_str());
-    let max_results = params
-        .get("maxResults")
-        .or_else(|| params.get("max_results"))
-        .and_then(|v| v.as_u64())
-        .map(|n| n as usize);
-
-    let label_ids = params
-        .get("labelIds")
-        .or_else(|| params.get("label_ids"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
+    let query = optional_string(params, "query");
+    let max_results = optional_u64_or(params, "maxResults", "max_results").map(|n| n as usize);
+    let label_ids = optional_string_array_or(params, "labelIds", "label_ids");
 
     match gmail.list_messages(query, max_results, label_ids).await {
         Ok(messages) => {
             debug!("Retrieved {} messages", messages.len());
-            JsonRpcResponse::success(
+            ok(
                 id,
                 serde_json::json!({
                     "messages": messages,
@@ -169,7 +101,7 @@ async fn handle_list_messages(
         }
         Err(e) => {
             error!("Failed to list messages: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -181,24 +113,18 @@ async fn handle_get_message(
 ) -> JsonRpcResponse {
     info!("Handling gmail.get_message");
 
-    let message_id = match params
-        .get("id")
-        .or_else(|| params.get("messageId"))
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: id");
-        }
+    let message_id = match require_string_or(params, "id", "messageId", &id) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
-    let format = params.get("format").and_then(|v| v.as_str());
+    let format = optional_string(params, "format");
 
     match gmail.get_message(message_id, format).await {
-        Ok(message) => JsonRpcResponse::success(id, message),
+        Ok(message) => ok(id, message),
         Err(e) => {
             error!("Failed to get message: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -220,45 +146,32 @@ async fn handle_send_message(
             if let Some(to_str) = params.get("to").and_then(|v| v.as_str()) {
                 vec![to_str.to_string()]
             } else {
-                return JsonRpcResponse::invalid_params(id, "Missing required parameter: to");
+                return invalid_params(id, "Missing required parameter: to");
             }
         }
     };
 
-    let subject = match params.get("subject").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: subject");
-        }
+    let subject = match require_string(params, "subject", &id) {
+        Ok(s) => s,
+        Err(response) => return response,
     };
 
-    let body = match params.get("body").and_then(|v| v.as_str()) {
-        Some(b) => b,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: body");
-        }
+    let body = match require_string(params, "body", &id) {
+        Ok(b) => b,
+        Err(response) => return response,
     };
 
-    let cc = params.get("cc").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect()
-    });
-
-    let bcc = params.get("bcc").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect()
-    });
+    let cc = optional_string_array(params, "cc");
+    let bcc = optional_string_array(params, "bcc");
 
     match gmail.send_message(to, subject, body, cc, bcc).await {
         Ok(response) => {
             info!("Message sent successfully");
-            JsonRpcResponse::success(id, response)
+            ok(id, response)
         }
         Err(e) => {
             error!("Failed to send message: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -267,7 +180,7 @@ async fn handle_list_labels(id: Value, gmail: GmailApi) -> JsonRpcResponse {
     info!("Handling gmail.list_labels");
 
     match gmail.list_labels().await {
-        Ok(labels) => JsonRpcResponse::success(
+        Ok(labels) => ok(
             id,
             serde_json::json!({
                 "labels": labels,
@@ -276,7 +189,7 @@ async fn handle_list_labels(id: Value, gmail: GmailApi) -> JsonRpcResponse {
         ),
         Err(e) => {
             error!("Failed to list labels: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -288,42 +201,19 @@ async fn handle_modify_message(
 ) -> JsonRpcResponse {
     info!("Handling gmail.modify_message");
 
-    let message_id = match params
-        .get("id")
-        .or_else(|| params.get("messageId"))
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: id");
-        }
+    let message_id = match require_string_or(params, "id", "messageId", &id) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
-    let add_label_ids = params
-        .get("addLabelIds")
-        .or_else(|| params.get("add_label_ids"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
-
-    let remove_label_ids = params
-        .get("removeLabelIds")
-        .or_else(|| params.get("remove_label_ids"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
+    let add_label_ids = optional_string_array_or(params, "addLabelIds", "add_label_ids");
+    let remove_label_ids = optional_string_array_or(params, "removeLabelIds", "remove_label_ids");
 
     match gmail.modify_message(message_id, add_label_ids, remove_label_ids).await {
-        Ok(message) => JsonRpcResponse::success(id, message),
+        Ok(message) => ok(id, message),
         Err(e) => {
             error!("Failed to modify message: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -335,22 +225,16 @@ async fn handle_trash_message(
 ) -> JsonRpcResponse {
     info!("Handling gmail.trash_message");
 
-    let message_id = match params
-        .get("id")
-        .or_else(|| params.get("messageId"))
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: id");
-        }
+    let message_id = match require_string_or(params, "id", "messageId", &id) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
     match gmail.trash_message(message_id).await {
-        Ok(response) => JsonRpcResponse::success(id, response),
+        Ok(response) => ok(id, response),
         Err(e) => {
             error!("Failed to trash message: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -362,22 +246,16 @@ async fn handle_delete_message(
 ) -> JsonRpcResponse {
     info!("Handling gmail.delete_message");
 
-    let message_id = match params
-        .get("id")
-        .or_else(|| params.get("messageId"))
-        .and_then(|v| v.as_str())
-    {
-        Some(id) => id,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing required parameter: id");
-        }
+    let message_id = match require_string_or(params, "id", "messageId", &id) {
+        Ok(id) => id,
+        Err(response) => return response,
     };
 
     match gmail.delete_message(message_id).await {
-        Ok(_) => JsonRpcResponse::success(id, serde_json::json!({ "deleted": true })),
+        Ok(_) => ok(id, serde_json::json!({ "deleted": true })),
         Err(e) => {
             error!("Failed to delete message: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }

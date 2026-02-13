@@ -90,6 +90,19 @@ pub fn u64_or_with_default(params: &Value, primary: &str, fallback: &str, defaul
         .unwrap_or(default)
 }
 
+/// Extract a required f64 parameter
+pub fn require_f64(params: &Value, key: &str, id: &Value) -> Result<f64, JsonRpcResponse> {
+    params
+        .get(key)
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| invalid_params(id.clone(), format!("Missing '{}' parameter", key)))
+}
+
+/// Extract an optional f64 parameter
+pub fn optional_f64(params: &Value, key: &str) -> Option<f64> {
+    params.get(key).and_then(|v| v.as_f64())
+}
+
 /// Extract an optional bool parameter
 pub fn optional_bool(params: &Value, key: &str) -> Option<bool> {
     params.get(key).and_then(|v| v.as_bool())

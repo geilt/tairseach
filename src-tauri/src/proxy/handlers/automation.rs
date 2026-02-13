@@ -7,6 +7,7 @@
 use serde_json::Value;
 use tracing::{error, info, warn};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
 
 /// Maximum AppleScript execution time in seconds
@@ -18,7 +19,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "run" => handle_run(params, id).await,
         "click" => handle_click(params, id).await,
         "type" => handle_type(params, id).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("automation.{}", action)),
+        _ => method_not_found(id, &format!("automation.{}", action)),
     }
 }
 
@@ -31,39 +32,27 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
 ///
 /// Returns the script output as a string
 async fn handle_run(params: &Value, id: Value) -> JsonRpcResponse {
-    let script = match params.get("script").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'script' parameter");
-        }
+    let script = match require_string(params, "script", &id) {
+        Ok(s) => s,
+        Err(response) => return response,
     };
 
-    let language = params
-        .get("language")
-        .and_then(|v| v.as_str())
-        .unwrap_or("applescript");
-
-    let timeout_secs = params
-        .get("timeout")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(DEFAULT_TIMEOUT_SECS);
+    let language = string_with_default(params, "language", "applescript");
+    let timeout_secs = u64_with_default(params, "timeout", DEFAULT_TIMEOUT_SECS);
 
     if language != "applescript" && language != "javascript" {
-        return JsonRpcResponse::invalid_params(
-            id,
-            "Invalid language. Use 'applescript' or 'javascript' (JXA).",
-        );
+        return invalid_params(id, "Invalid language. Use 'applescript' or 'javascript' (JXA).");
     }
 
     match run_script(script, language, timeout_secs).await {
-        Ok(output) => JsonRpcResponse::success(
+        Ok(output) => ok(
             id,
             serde_json::json!({
                 "output": output,
                 "language": language,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -75,32 +64,21 @@ async fn handle_run(params: &Value, id: Value) -> JsonRpcResponse {
 ///   - button (optional): "left" (default), "right"
 ///   - clicks (optional): number of clicks (default 1)
 async fn handle_click(params: &Value, id: Value) -> JsonRpcResponse {
-    let x = match params.get("x").and_then(|v| v.as_f64()) {
-        Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'x' parameter");
-        }
+    let x = match require_f64(params, "x", &id) {
+        Ok(v) => v,
+        Err(response) => return response,
     };
 
-    let y = match params.get("y").and_then(|v| v.as_f64()) {
-        Some(v) => v,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'y' parameter");
-        }
+    let y = match require_f64(params, "y", &id) {
+        Ok(v) => v,
+        Err(response) => return response,
     };
 
-    let button = params
-        .get("button")
-        .and_then(|v| v.as_str())
-        .unwrap_or("left");
-
-    let clicks = params
-        .get("clicks")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1);
+    let button = string_with_default(params, "button", "left");
+    let clicks = u64_with_default(params, "clicks", 1);
 
     match click_at(x, y, button, clicks).await {
-        Ok(()) => JsonRpcResponse::success(
+        Ok(()) => ok(
             id,
             serde_json::json!({
                 "clicked": true,
@@ -110,7 +88,7 @@ async fn handle_click(params: &Value, id: Value) -> JsonRpcResponse {
                 "clicks": clicks,
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
@@ -120,27 +98,22 @@ async fn handle_click(params: &Value, id: Value) -> JsonRpcResponse {
 ///   - text (required): text to type
 ///   - delay (optional): delay between keystrokes in ms (default 0)
 async fn handle_type(params: &Value, id: Value) -> JsonRpcResponse {
-    let text = match params.get("text").and_then(|v| v.as_str()) {
-        Some(t) => t,
-        None => {
-            return JsonRpcResponse::invalid_params(id, "Missing 'text' parameter");
-        }
+    let text = match require_string(params, "text", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
     };
 
-    let delay_ms = params
-        .get("delay")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+    let delay_ms = u64_with_default(params, "delay", 0);
 
     match type_text(text, delay_ms).await {
-        Ok(()) => JsonRpcResponse::success(
+        Ok(()) => ok(
             id,
             serde_json::json!({
                 "typed": true,
                 "length": text.len(),
             }),
         ),
-        Err(e) => JsonRpcResponse::error(id, -32000, e, None),
+        Err(e) => generic_error(id, e),
     }
 }
 
