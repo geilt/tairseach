@@ -4,39 +4,10 @@
 //! Retrieves personal access token from auth broker.
 
 use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
+use super::common::*;
 use super::super::protocol::JsonRpcResponse;
-use crate::auth::AuthBroker;
-
-/// Global auth broker instance.
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialise the auth broker.
-async fn get_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
-    AUTH_BROKER
-        .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
-        })
-        .await
-        .map_err(|e| {
-            error!("Failed to initialise auth broker: {}", e);
-            JsonRpcResponse::error(
-                Value::Null,
-                crate::auth::error_codes::MASTER_KEY_NOT_INITIALIZED,
-                format!("Auth broker init failed: {}", e),
-                None,
-            )
-        })
-}
 
 /// Oura Ring API client
 struct OuraApi {
@@ -46,11 +17,8 @@ struct OuraApi {
 
 impl OuraApi {
     fn new(token: String) -> Result<Self, String> {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-
+        use crate::common::create_http_client;
+        let client = create_http_client()?;
         Ok(Self { token, client })
     }
 
@@ -82,7 +50,6 @@ impl OuraApi {
             .map_err(|e| format!("Failed to parse JSON response: {}", e))
     }
 
-    /// Get sleep data
     async fn sleep(&self, start_date: Option<&str>, end_date: Option<&str>) -> Result<Value, String> {
         let mut params = Vec::new();
         if let Some(start) = start_date {
@@ -94,7 +61,6 @@ impl OuraApi {
         self.get("/sleep", params).await
     }
 
-    /// Get activity data
     async fn activity(&self, start_date: Option<&str>, end_date: Option<&str>) -> Result<Value, String> {
         let mut params = Vec::new();
         if let Some(start) = start_date {
@@ -106,7 +72,6 @@ impl OuraApi {
         self.get("/daily_activity", params).await
     }
 
-    /// Get readiness data
     async fn readiness(&self, start_date: Option<&str>, end_date: Option<&str>) -> Result<Value, String> {
         let mut params = Vec::new();
         if let Some(start) = start_date {
@@ -118,7 +83,6 @@ impl OuraApi {
         self.get("/daily_readiness", params).await
     }
 
-    /// Get heart rate data
     async fn heart_rate(&self, start_datetime: Option<&str>, end_datetime: Option<&str>) -> Result<Value, String> {
         let mut params = Vec::new();
         if let Some(start) = start_datetime {
@@ -133,7 +97,7 @@ impl OuraApi {
 
 /// Handle Oura-related methods
 pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse {
-    let auth_broker = match get_broker().await {
+    let auth_broker = match get_auth_broker().await {
         Ok(broker) => broker,
         Err(mut resp) => {
             resp.id = id;
@@ -141,65 +105,52 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         }
     };
 
-    // Retrieve Oura token from auth broker
-    let account = params
-        .get("account")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
+    let account = optional_string(params, "account").unwrap_or("default");
 
     let token_data = match auth_broker.get_token("oura", account, None).await {
         Ok(data) => data,
         Err((code, msg)) => {
             error!("Failed to get Oura token: {}", msg);
-            return JsonRpcResponse::error(id, code, msg, None);
+            return error(id, code, msg);
         }
     };
 
-    let access_token = match token_data.get("access_token").and_then(|v| v.as_str()) {
-        Some(token) => token.to_string(),
-        None => {
-            return JsonRpcResponse::error(
-                id,
-                -32000,
-                "Invalid token response: missing access_token".to_string(),
-                None,
-            );
-        }
+    let access_token = match extract_access_token(&token_data, &id) {
+        Ok(token) => token,
+        Err(response) => return response,
     };
 
-    // Create API client
     let api = match OuraApi::new(access_token) {
         Ok(client) => client,
         Err(e) => {
             error!("Failed to create Oura API client: {}", e);
-            return JsonRpcResponse::error(id, -32000, e, None);
+            return generic_error(id, e);
         }
     };
 
-    // Dispatch to specific handler
     match action {
         "sleep" => handle_sleep(params, id, api).await,
         "activity" => handle_activity(params, id, api).await,
         "readiness" => handle_readiness(params, id, api).await,
         "heartRate" | "heart_rate" => handle_heart_rate(params, id, api).await,
-        _ => JsonRpcResponse::method_not_found(id, &format!("oura.{}", action)),
+        _ => method_not_found(id, &format!("oura.{}", action)),
     }
 }
 
 async fn handle_sleep(params: &Value, id: Value, api: OuraApi) -> JsonRpcResponse {
     info!("Handling oura.sleep");
 
-    let start_date = params.get("start_date").or_else(|| params.get("startDate")).and_then(|v| v.as_str());
-    let end_date = params.get("end_date").or_else(|| params.get("endDate")).and_then(|v| v.as_str());
+    let start_date = optional_string_or(params, "start_date", "startDate");
+    let end_date = optional_string_or(params, "end_date", "endDate");
 
     match api.sleep(start_date, end_date).await {
         Ok(data) => {
             debug!("Retrieved sleep data");
-            JsonRpcResponse::success(id, data)
+            ok(id, data)
         }
         Err(e) => {
             error!("Failed to get sleep data: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -207,17 +158,17 @@ async fn handle_sleep(params: &Value, id: Value, api: OuraApi) -> JsonRpcRespons
 async fn handle_activity(params: &Value, id: Value, api: OuraApi) -> JsonRpcResponse {
     info!("Handling oura.activity");
 
-    let start_date = params.get("start_date").or_else(|| params.get("startDate")).and_then(|v| v.as_str());
-    let end_date = params.get("end_date").or_else(|| params.get("endDate")).and_then(|v| v.as_str());
+    let start_date = optional_string_or(params, "start_date", "startDate");
+    let end_date = optional_string_or(params, "end_date", "endDate");
 
     match api.activity(start_date, end_date).await {
         Ok(data) => {
             debug!("Retrieved activity data");
-            JsonRpcResponse::success(id, data)
+            ok(id, data)
         }
         Err(e) => {
             error!("Failed to get activity data: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -225,17 +176,17 @@ async fn handle_activity(params: &Value, id: Value, api: OuraApi) -> JsonRpcResp
 async fn handle_readiness(params: &Value, id: Value, api: OuraApi) -> JsonRpcResponse {
     info!("Handling oura.readiness");
 
-    let start_date = params.get("start_date").or_else(|| params.get("startDate")).and_then(|v| v.as_str());
-    let end_date = params.get("end_date").or_else(|| params.get("endDate")).and_then(|v| v.as_str());
+    let start_date = optional_string_or(params, "start_date", "startDate");
+    let end_date = optional_string_or(params, "end_date", "endDate");
 
     match api.readiness(start_date, end_date).await {
         Ok(data) => {
             debug!("Retrieved readiness data");
-            JsonRpcResponse::success(id, data)
+            ok(id, data)
         }
         Err(e) => {
             error!("Failed to get readiness data: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }
@@ -243,23 +194,17 @@ async fn handle_readiness(params: &Value, id: Value, api: OuraApi) -> JsonRpcRes
 async fn handle_heart_rate(params: &Value, id: Value, api: OuraApi) -> JsonRpcResponse {
     info!("Handling oura.heartRate");
 
-    let start_datetime = params
-        .get("start_datetime")
-        .or_else(|| params.get("startDatetime"))
-        .and_then(|v| v.as_str());
-    let end_datetime = params
-        .get("end_datetime")
-        .or_else(|| params.get("endDatetime"))
-        .and_then(|v| v.as_str());
+    let start_datetime = optional_string_or(params, "start_datetime", "startDatetime");
+    let end_datetime = optional_string_or(params, "end_datetime", "endDatetime");
 
     match api.heart_rate(start_datetime, end_datetime).await {
         Ok(data) => {
             debug!("Retrieved heart rate data");
-            JsonRpcResponse::success(id, data)
+            ok(id, data)
         }
         Err(e) => {
             error!("Failed to get heart rate data: {}", e);
-            JsonRpcResponse::error(id, -32000, e, None)
+            generic_error(id, e)
         }
     }
 }

@@ -2,6 +2,7 @@
 //!
 //! Dispatches JSON-RPC requests to appropriate handlers after checking permissions.
 
+pub mod common;
 pub mod auth;
 pub mod automation;
 pub mod calendar;
