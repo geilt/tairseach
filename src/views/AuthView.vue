@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onActivated, ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '@/stores/auth'
+import { api } from '@/api/tairseach'
 import type { AccountInfo } from '@/stores/auth'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -50,7 +52,7 @@ const loadingCredentials = ref(false)
 
 // Active credential forms
 const activeForm = ref<string | null>(null)
-const formData = ref<Record<string, any>>({})
+const formData = ref<Record<string, string>>({})
 const savingCredential = ref(false)
 
 // 1Password specific
@@ -104,7 +106,7 @@ onActivated(() => {
 async function loadCredentialTypes() {
   loadingTypes.value = true
   try {
-    const types = await invoke<CredentialType[]>('auth_credential_types')
+    const types = await api.auth.credentialTypes()
     requestAnimationFrame(() => {
       credentialTypes.value = types
       loadingTypes.value = false
@@ -150,7 +152,7 @@ async function loadCredentialTypes() {
 async function loadAllCredentials() {
   loadingCredentials.value = true
   try {
-    const all = await invoke<CredentialMetadata[]>('auth_credentials_list', { credType: null })
+    const all = await api.auth.credentialsList(null)
     
     // Group by type
     const grouped: Record<string, CredentialMetadata[]> = {}
@@ -207,13 +209,13 @@ async function saveCredential(typeId: string) {
   
   savingCredential.value = true
   try {
-    await invoke('auth_credentials_store', {
-      credType: typeId,
-      label: formData.value.label,
-      fields: Object.fromEntries(
+    await api.auth.credentialsStore(
+      typeId,
+      formData.value.label,
+      Object.fromEntries(
         credType.fields.map(f => [f.name, formData.value[f.name] || ''])
       )
-    })
+    )
     
     requestAnimationFrame(() => {
       setFeedback('success', `${credType.display_name} credential saved`)
@@ -239,7 +241,7 @@ async function saveCredential(typeId: string) {
 
 async function deleteCredential(typeId: string, label: string) {
   try {
-    await invoke('auth_credentials_delete', { credType: typeId, label })
+    await api.auth.credentialsDelete(typeId, label)
     requestAnimationFrame(() => {
       setFeedback('success', 'Credential deleted')
     })
@@ -260,7 +262,7 @@ async function deleteCredential(typeId: string, label: string) {
 async function load1PasswordVaults() {
   loadingVaults.value = true
   try {
-    const result = await invoke<{ vaults: Vault[], default_vault: string | null }>('op_vaults_list')
+    const result = await api.onePassword.listVaults()
     requestAnimationFrame(() => {
       vaults.value = result.vaults
       defaultVault.value = result.default_vault
@@ -277,7 +279,7 @@ async function load1PasswordVaults() {
 async function setDefault1PasswordVault(vaultId: string) {
   settingDefaultVault.value = true
   try {
-    await invoke('op_config_set_default_vault', { vaultId })
+    await api.onePassword.setDefaultVault(vaultId)
     requestAnimationFrame(() => {
       defaultVault.value = vaultId
       setFeedback('success', 'Default vault updated')
@@ -328,11 +330,11 @@ async function saveCustomType() {
   }
   
   try {
-    await invoke('auth_credential_types_custom_create', {
-      type: customTypeName.value,
-      displayName: customTypeDisplayName.value,
-      fields: customTypeFields.value
-    })
+    await api.auth.customCredentialTypeCreate(
+      customTypeName.value,
+      customTypeDisplayName.value,
+      customTypeFields.value
+    )
     
     requestAnimationFrame(() => {
       setFeedback('success', 'Custom credential type created')
@@ -441,7 +443,7 @@ async function handleRevoke(account: AccountInfo) {
   if (!success) {
     // Fall back to credential delete
     try {
-      await invoke('auth_credentials_delete', { credType: account.provider, label: account.account })
+      await api.auth.credentialsDelete(account.provider, account.account)
       success = true
       // Reload accounts
       await store.loadAccounts({ silent: true })
@@ -472,7 +474,7 @@ async function handleConnectGoogle() {
   })
   
   try {
-    const result = await invoke<{ success: boolean; account: string }>('auth_start_google_oauth')
+    const result = await api.auth.startGoogleOauth()
     
     requestAnimationFrame(() => {
       actionMessage.value = {
@@ -512,35 +514,33 @@ function setFeedback(type: 'success' | 'error', text: string) {
 <template>
   <div class="animate-fade-in">
     <!-- Header -->
-    <div class="mb-8 flex items-start justify-between">
-      <div>
-        <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2 flex items-center gap-3">
-          <img src="@/assets/icons/auth-services.png" alt="Auth" class="w-8 h-8 object-contain" />
-          Auth Services
-        </h1>
-        <p class="text-naonur-ash font-body">
-          Credential management for CLI tools, APIs, and OAuth services.
-        </p>
-      </div>
-      
-      <!-- Action Message -->
-      <Transition
-        enter-active-class="transition-opacity duration-200"
-        enter-from-class="opacity-0"
-        leave-active-class="transition-opacity duration-200"
-        leave-to-class="opacity-0"
-      >
-        <span 
-          v-if="actionMessage" 
-          :class="[
-            'text-sm px-4 py-2 rounded-lg',
-            actionMessage.type === 'success' ? 'text-naonur-moss bg-naonur-moss/10' : 'text-naonur-blood bg-naonur-blood/10'
-          ]"
+    <SectionHeader
+      title="Auth Services"
+      description="Credential management for CLI tools, APIs, and OAuth services."
+    >
+      <template #icon>
+        <img src="@/assets/icons/auth-services.png" alt="Auth" class="w-8 h-8 object-contain" />
+      </template>
+
+      <template #actions>
+        <Transition
+          enter-active-class="transition-opacity duration-200"
+          enter-from-class="opacity-0"
+          leave-active-class="transition-opacity duration-200"
+          leave-to-class="opacity-0"
         >
-          {{ actionMessage.text }}
-        </span>
-      </Transition>
-    </div>
+          <span 
+            v-if="actionMessage" 
+            :class="[
+              'text-sm px-4 py-2 rounded-lg',
+              actionMessage.type === 'success' ? 'text-naonur-moss bg-naonur-moss/10' : 'text-naonur-blood bg-naonur-blood/10'
+            ]"
+          >
+            {{ actionMessage.text }}
+          </span>
+        </Transition>
+      </template>
+    </SectionHeader>
 
     <!-- Auth Broker Status -->
     <div class="naonur-card mb-6">
@@ -645,9 +645,7 @@ function setFeedback(type: 'success' | 'error', text: string) {
       </div>
 
       <!-- Loading State -->
-      <div v-if="loadingTypes" class="text-center py-8 text-naonur-ash animate-pulse">
-        Loading credential types...
-      </div>
+      <LoadingState v-if="loadingTypes" message="Loading credential types..." />
 
       <!-- Credential Type Sections -->
       <div v-else class="space-y-4">
@@ -969,18 +967,6 @@ function setFeedback(type: 'success' | 'error', text: string) {
 </template>
 
 <style scoped>
-.btn-primary {
-  @apply bg-naonur-gold text-naonur-void hover:bg-naonur-gold/80;
-}
-
-.btn-secondary {
-  @apply bg-naonur-fog/20 text-naonur-bone hover:bg-naonur-fog/30 border border-naonur-fog/30;
-}
-
-.btn-ghost {
-  @apply text-naonur-ash hover:text-naonur-bone hover:bg-naonur-fog/20;
-}
-
 .input-field {
   @apply bg-naonur-void/50 border border-naonur-fog/30 rounded px-3 py-2 text-sm text-naonur-bone;
   @apply focus:outline-none focus:border-naonur-gold/50 focus:ring-1 focus:ring-naonur-gold/30;

@@ -6,7 +6,7 @@
  */
 
 import { ref, onMounted, onUnmounted, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { api } from '@/api/tairseach'
 
 interface ProxyStatus {
   running: boolean
@@ -39,7 +39,7 @@ export function useWorkerPoller(intervalMs = 15000): UseWorkerPollerReturn {
     
     if (msg.type === 'invoke') {
       // Bridge: Worker wants to call Tauri invoke
-      invoke(msg.command, msg.params || {})
+      api.system.invokeCommand<unknown>(msg.command, msg.params || {})
         .then(result => {
           worker?.postMessage({
             type: 'invoke-result',

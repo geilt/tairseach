@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { loadStateCache, saveStateCache } from '@/composables/useStateCache'
+import { api } from '@/api/tairseach'
 
 export type PermissionStatus = 'granted' | 'denied' | 'not_determined' | 'restricted' | 'unknown'
 
@@ -78,7 +78,7 @@ export const usePermissionsStore = defineStore('permissions', () => {
     const silent = opts.silent === true
     try {
       if (!silent && definitions.value.length === 0) loading.value = true
-      const next = await invoke<PermissionDefinition[]>('get_permission_definitions')
+      const next = await api.permissions.definitions()
       definitions.value = next
       persistCache()
     } catch (e) {
@@ -108,7 +108,7 @@ export const usePermissionsStore = defineStore('permissions', () => {
     error.value = null
 
     try {
-      const result = await invoke<Permission[]>('check_all_permissions')
+      const result = await api.permissions.all()
       const mapped = result.map((p) => ({ ...p, status: mapStatus(p.status as string) }))
       permissions.value = mapped
       persistCache()
@@ -122,7 +122,7 @@ export const usePermissionsStore = defineStore('permissions', () => {
 
   async function checkPermission(id: string): Promise<Permission | null> {
     try {
-      const result = await invoke<Permission>('check_permission', { permissionId: id })
+      const result = await api.permissions.check(id)
       return { ...result, status: mapStatus(result.status as string) }
     } catch (e) {
       console.error(`Failed to check permission ${id}:`, e)
@@ -139,7 +139,7 @@ export const usePermissionsStore = defineStore('permissions', () => {
   async function requestPermission(id: string) {
     try {
       const before = permissions.value.find((p) => p.id === id)?.status
-      await invoke('request_permission', { permissionId: id })
+      await api.permissions.request(id)
 
       const startedAt = Date.now()
       const maxMs = 30_000
@@ -160,7 +160,7 @@ export const usePermissionsStore = defineStore('permissions', () => {
 
   async function openSettings(pane: string) {
     try {
-      await invoke('open_permission_settings', { pane })
+      await api.permissions.openSettings(pane)
     } catch (e) {
       console.error('Failed to open settings:', e)
       error.value = String(e)

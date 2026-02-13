@@ -1,5 +1,5 @@
 import { ref, onUnmounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { api } from '@/api/tairseach'
 
 export interface ProxyStatus {
   running: boolean
@@ -61,7 +61,7 @@ export function useStatusPoller(options: StatusPollerOptions = {}) {
    */
   async function invokeWithTimeout<T>(
     command: string,
-    args?: Record<string, any>
+    args?: Record<string, unknown>
   ): Promise<T | null> {
     return new Promise((resolve) => {
       let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -80,7 +80,7 @@ export function useStatusPoller(options: StatusPollerOptions = {}) {
       }, timeout)
 
       // Make the call
-      invoke<T>(command, args)
+      api.system.invokeCommand<T>(command, args)
         .then((result) => complete(result))
         .catch((error) => {
           console.warn(`invoke(${command}) failed:`, error)

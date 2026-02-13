@@ -1,19 +1,7 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
 import { computed, onMounted, ref, shallowRef } from 'vue'
-
-interface GoogleStatus {
-  status: 'connected' | 'not_configured' | 'token_expired' | string
-  configured: boolean
-  has_token: boolean
-  message: string
-}
-
-interface GoogleConfig {
-  client_id: string
-  client_secret: string
-  updated_at: string
-}
+import { api } from '@/api/tairseach'
+import type { GoogleStatus } from '@/api/types'
 
 const clientId = ref('')
 const clientSecret = ref('')
@@ -43,8 +31,8 @@ function setFeedback(type: 'success' | 'error', text: string) {
 
 async function loadCurrent() {
   const [cfg, st] = await Promise.all([
-    invoke<GoogleConfig | null>('get_google_oauth_config'),
-    invoke<GoogleStatus>('get_google_oauth_status'),
+    api.google.getConfig(),
+    api.google.getStatus(),
   ])
 
   if (cfg) {
@@ -104,10 +92,7 @@ async function saveCredentials() {
 
   saving.value = true
   try {
-    await invoke('save_google_oauth_config', {
-      clientId: clientId.value,
-      clientSecret: clientSecret.value,
-    })
+    await api.google.saveConfig(clientId.value, clientSecret.value)
     await loadCurrent()
     setFeedback('success', 'Google OAuth credentials saved.')
   } catch (err) {
@@ -120,10 +105,7 @@ async function saveCredentials() {
 async function testConnection() {
   testing.value = true
   try {
-    const result = await invoke<{ ok: boolean; message: string; error?: string }>('test_google_oauth_config', {
-      clientId: clientId.value,
-      clientSecret: clientSecret.value,
-    })
+    const result = await api.google.testConfig(clientId.value, clientSecret.value)
 
     await loadCurrent()
     if (result.ok) {

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
 import { useWorkerPoller, type NamespaceStatus } from '@/composables/useWorkerPoller'
+import { api } from '@/api/tairseach'
+import SectionHeader from '@/components/common/SectionHeader.vue'
+import LoadingState from '@/components/common/LoadingState.vue'
+import ErrorBanner from '@/components/common/ErrorBanner.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 
 interface Tool {
   name: string
   description: string
-  inputSchema: Record<string, any>
-  outputSchema: Record<string, any>
-  annotations?: Record<string, any>
+  inputSchema: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+  annotations?: Record<string, unknown>
 }
 
 interface Manifest {
@@ -25,7 +29,7 @@ const error = ref<string | null>(null)
 const manifests = ref<Manifest[]>([])
 const selectedTool = ref<{ manifest: string; tool: Tool } | null>(null)
 const testParams = ref('{}')
-const testResult = ref<any>(null)
+const testResult = ref<unknown>(null)
 const testError = ref<string | null>(null)
 const testLoading = ref(false)
 const expandedTools = ref<Set<string>>(new Set())
@@ -74,7 +78,7 @@ async function loadManifests() {
   error.value = null
   
   try {
-    const result = await invoke<Manifest[]>('get_all_manifests')
+    const result = await api.mcp.manifests()
     
     requestAnimationFrame(() => {
       manifests.value = result
@@ -120,10 +124,7 @@ async function testTool() {
   try {
     const params = JSON.parse(testParams.value)
     
-    const result = await invoke<any>('test_mcp_tool', {
-      toolName: selectedTool.value.tool.name,
-      params
-    })
+    const result = await api.mcp.testTool(selectedTool.value.tool.name, params)
     
     requestAnimationFrame(() => {
       testResult.value = result
@@ -142,9 +143,7 @@ async function installToOpenClaw() {
   openclawInstallResult.value = null
   
   try {
-    const result = await invoke<{ success: boolean; message: string; config_path?: string }>(
-      'install_tairseach_to_openclaw'
-    )
+    const result = await api.mcp.installToOpenClaw()
     
     requestAnimationFrame(() => {
       openclawInstallResult.value = result
@@ -175,14 +174,11 @@ onMounted(() => {
 <template>
   <div class="animate-fade-in">
     <!-- Header -->
-    <div class="mb-8">
-      <h1 class="font-display text-2xl tracking-wider text-naonur-gold mb-2">
-        🔌 MCP Tools
-      </h1>
-      <p class="text-naonur-ash font-body">
-        Model Context Protocol tool manifests and testing interface.
-      </p>
-    </div>
+    <SectionHeader
+      title="MCP Tools"
+      icon="🔌"
+      description="Model Context Protocol tool manifests and testing interface."
+    />
 
     <!-- Status Cards -->
     <div class="grid grid-cols-3 gap-4 mb-6">
@@ -241,17 +237,10 @@ onMounted(() => {
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading" class="naonur-card text-center py-8">
-      <p class="text-naonur-ash animate-pulse">Loading manifests...</p>
-    </div>
+    <LoadingState v-if="loading" message="Loading manifests..." />
 
     <!-- Error State -->
-    <div v-else-if="error" class="naonur-card border-red-500/50">
-      <p class="text-red-400 mb-4">{{ error }}</p>
-      <button class="btn btn-secondary" @click="loadManifests">
-        Retry
-      </button>
-    </div>
+    <ErrorBanner v-else-if="error" :message="error" @retry="loadManifests" />
 
     <template v-else>
       <!-- Tool Browser -->
@@ -372,9 +361,7 @@ onMounted(() => {
       <div class="naonur-card mb-6">
         <h2 class="font-display text-lg text-naonur-gold mb-4">🧪 Tool Tester</h2>
         
-        <div v-if="!selectedTool" class="text-center py-8 text-naonur-smoke">
-          Select a tool above to test it
-        </div>
+        <EmptyState v-if="!selectedTool" message="Select a tool above to test it" />
         
         <div v-else class="space-y-4">
           <div>
@@ -491,19 +478,4 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.btn-primary {
-  @apply bg-naonur-gold text-naonur-void hover:bg-naonur-gold/80 px-4 py-2 rounded-lg transition-colors;
-}
-
-.btn-ghost {
-  @apply text-naonur-ash hover:text-naonur-bone hover:bg-naonur-fog/20 px-3 py-1.5 rounded-lg transition-colors;
-}
-
-.btn-secondary {
-  @apply border border-naonur-fog/50 text-naonur-bone hover:bg-naonur-fog/20 px-4 py-2 rounded-lg transition-colors;
-}
-
-.btn {
-  @apply disabled:opacity-50 disabled:cursor-not-allowed;
-}
 </style>
