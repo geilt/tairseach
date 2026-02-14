@@ -140,15 +140,23 @@ async fn handle_update_event(params: &Value, id: Value) -> JsonRpcResponse {
         Err(response) => return response,
     };
     
-    // For now, just return success - actual implementation would update the event
-    ok(
-        id,
-        serde_json::json!({
-            "updated": true,
-            "id": event_id,
-            "message": "Event update not yet implemented",
-        }),
-    )
+    let title = optional_string(params, "title");
+    let start = optional_string(params, "start");
+    let end = optional_string(params, "end");
+    let location = optional_string(params, "location");
+    let notes = optional_string(params, "notes");
+    let is_all_day = params.get("isAllDay").and_then(|v| v.as_bool());
+    
+    match update_event(event_id, title, start, end, location, notes, is_all_day).await {
+        Some(event) => ok(
+            id,
+            serde_json::json!({
+                "updated": true,
+                "event": event,
+            }),
+        ),
+        None => error(id, -32003, "Failed to update event"),
+    }
 }
 
 /// Delete an event
@@ -158,15 +166,17 @@ async fn handle_delete_event(params: &Value, id: Value) -> JsonRpcResponse {
         Err(response) => return response,
     };
     
-    // For now, just return success - actual implementation would delete the event
-    ok(
-        id,
-        serde_json::json!({
-            "deleted": true,
-            "id": event_id,
-            "message": "Event deletion not yet implemented",
-        }),
-    )
+    if delete_event(event_id).await {
+        ok(
+            id,
+            serde_json::json!({
+                "deleted": true,
+                "id": event_id,
+            }),
+        )
+    } else {
+        error(id, -32003, "Failed to delete event")
+    }
 }
 
 // ============================================================================
@@ -519,6 +529,191 @@ async fn create_event(
     }
 }
 
+/// Update an existing event using JXA
+#[cfg(target_os = "macos")]
+async fn update_event(
+    event_id: &str,
+    title: Option<&str>,
+    start: Option<&str>,
+    end: Option<&str>,
+    location: Option<&str>,
+    notes: Option<&str>,
+    is_all_day: Option<bool>,
+) -> Option<Event> {
+    use std::process::Command;
+    
+    info!("Updating event via JXA: {}", event_id);
+    
+    let mut updates = Vec::new();
+    if let Some(t) = title {
+        updates.push(format!("event.title = '{}';", t.replace('\'', "\\'")));
+    }
+    if let Some(l) = location {
+        updates.push(format!("event.location = '{}';", l.replace('\'', "\\'")));
+    }
+    if let Some(n) = notes {
+        updates.push(format!("event.notes = '{}';", n.replace('\'', "\\'")));
+    }
+    if let Some(all_day) = is_all_day {
+        updates.push(format!("event.allDay = {};", if all_day { "true" } else { "false" }));
+    }
+    
+    let date_updates = if start.is_some() || end.is_some() {
+        let start_str = start.unwrap_or("");
+        let end_str = end.unwrap_or("");
+        format!(
+            r#"
+            var formatter = $.NSDateFormatter.alloc.init;
+            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss";
+            formatter.timeZone = $.NSTimeZone.localTimeZone;
+            
+            {start_update}
+            {end_update}
+            "#,
+            start_update = if !start_str.is_empty() {
+                let mut s = start_str.to_string();
+                if s.len() == 10 { s.push_str("T00:00:00"); }
+                format!(
+                    "var startDate = formatter.dateFromString('{}'); if (startDate) event.startDate = startDate;",
+                    s.replace('\'', "\\'")
+                )
+            } else {
+                String::new()
+            },
+            end_update = if !end_str.is_empty() {
+                let mut e = end_str.to_string();
+                if e.len() == 10 { e.push_str("T23:59:59"); }
+                format!(
+                    "var endDate = formatter.dateFromString('{}'); if (endDate) event.endDate = endDate;",
+                    e.replace('\'', "\\'")
+                )
+            } else {
+                String::new()
+            }
+        )
+    } else {
+        String::new()
+    };
+    
+    let script = format!(
+        r#"
+        ObjC.import('EventKit');
+        ObjC.import('Foundation');
+        
+        var store = $.EKEventStore.alloc.init;
+        var event = store.eventWithIdentifier($.NSString.stringWithString('{event_id}'));
+        
+        if (!event) {{
+            'null';
+        }} else {{
+            {updates}
+            {date_updates}
+            
+            var error = $();
+            var success = store.saveEventSpanError(event, $.EKSpanThisEvent, error);
+            
+            if (success) {{
+                var isoFormatter = $.NSDateFormatter.alloc.init;
+                isoFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ";
+                
+                JSON.stringify({{
+                    id: ObjC.unwrap(event.eventIdentifier),
+                    title: ObjC.unwrap(event.title),
+                    calendarId: ObjC.unwrap(event.calendar.calendarIdentifier),
+                    startDate: ObjC.unwrap(isoFormatter.stringFromDate(event.startDate)),
+                    endDate: ObjC.unwrap(isoFormatter.stringFromDate(event.endDate)),
+                    isAllDay: event.allDay,
+                    location: ObjC.unwrap(event.location) || null,
+                    notes: ObjC.unwrap(event.notes) || null
+                }});
+            }} else {{
+                'null';
+            }}
+        }}
+        "#,
+        event_id = event_id.replace('\'', "\\'"),
+        updates = updates.join("\n            "),
+        date_updates = date_updates,
+    );
+    
+    let output = Command::new("osascript")
+        .arg("-l")
+        .arg("JavaScript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+    
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if stdout == "null" {
+                    error!("JXA returned null for event update");
+                    None
+                } else {
+                    serde_json::from_str::<Event>(&stdout).ok()
+                }
+            } else {
+                error!("JXA event update failed: {}", String::from_utf8_lossy(&out.stderr));
+                None
+            }
+        }
+        Err(e) => {
+            error!("Failed to execute osascript: {}", e);
+            None
+        }
+    }
+}
+
+/// Delete an event using JXA
+#[cfg(target_os = "macos")]
+async fn delete_event(event_id: &str) -> bool {
+    use std::process::Command;
+    
+    info!("Deleting event via JXA: {}", event_id);
+    
+    let script = format!(
+        r#"
+        ObjC.import('EventKit');
+        
+        var store = $.EKEventStore.alloc.init;
+        var event = store.eventWithIdentifier($.NSString.stringWithString('{event_id}'));
+        
+        if (event) {{
+            var error = $();
+            var success = store.removeEventSpanCommitError(event, $.EKSpanThisEvent, true, error);
+            success ? 'true' : 'false';
+        }} else {{
+            'false';
+        }}
+        "#,
+        event_id = event_id.replace('\'', "\\'")
+    );
+    
+    let output = Command::new("osascript")
+        .arg("-l")
+        .arg("JavaScript")
+        .arg("-e")
+        .arg(&script)
+        .output();
+    
+    match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                stdout == "true"
+            } else {
+                error!("JXA event delete failed: {}", String::from_utf8_lossy(&out.stderr));
+                false
+            }
+        }
+        Err(e) => {
+            error!("Failed to execute osascript: {}", e);
+            false
+        }
+    }
+}
+
 // Non-macOS stubs
 #[cfg(not(target_os = "macos"))]
 async fn fetch_calendars() -> Vec<Calendar> { Vec::new() }
@@ -539,3 +734,17 @@ async fn create_event(
     _notes: Option<&str>,
     _is_all_day: bool,
 ) -> Option<Event> { None }
+
+#[cfg(not(target_os = "macos"))]
+async fn update_event(
+    _event_id: &str,
+    _title: Option<&str>,
+    _start: Option<&str>,
+    _end: Option<&str>,
+    _location: Option<&str>,
+    _notes: Option<&str>,
+    _is_all_day: Option<bool>,
+) -> Option<Event> { None }
+
+#[cfg(not(target_os = "macos"))]
+async fn delete_event(_event_id: &str) -> bool { false }

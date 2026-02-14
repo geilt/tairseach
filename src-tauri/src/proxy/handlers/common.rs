@@ -139,20 +139,15 @@ pub fn optional_string_array_or(params: &Value, primary: &str, fallback: &str) -
 // Auth Broker Helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-/// Global auth broker instance (singleton pattern for handlers)
-static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
-
-/// Get or initialize the shared auth broker instance
+/// Get or initialize the shared auth broker instance.
+/// Delegates to the canonical singleton in `crate::auth` to avoid duplicate instances.
 pub async fn get_auth_broker() -> Result<&'static Arc<AuthBroker>, JsonRpcResponse> {
+    // We need to return a &'static Arc, but get_or_init_broker returns Arc.
+    // Use a local OnceCell that stores the Arc obtained from the canonical source.
+    static AUTH_BROKER: OnceCell<Arc<AuthBroker>> = OnceCell::const_new();
     AUTH_BROKER
         .get_or_try_init(|| async {
-            match AuthBroker::new().await {
-                Ok(broker) => {
-                    broker.spawn_refresh_daemon();
-                    Ok(broker)
-                }
-                Err(e) => Err(e),
-            }
+            crate::auth::get_or_init_broker().await
         })
         .await
         .map_err(|e| {

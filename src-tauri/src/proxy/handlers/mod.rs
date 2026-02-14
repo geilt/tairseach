@@ -6,6 +6,7 @@ pub mod common;
 pub mod auth;
 pub mod automation;
 pub mod calendar;
+pub mod camera;
 pub mod config;
 pub mod contacts;
 pub mod files;
@@ -16,6 +17,7 @@ pub mod location;
 pub mod onepassword;
 pub mod oura;
 pub mod permissions;
+pub mod photos;
 pub mod reminders;
 pub mod screen;
 
@@ -65,7 +67,7 @@ fn required_permission(method: &str) -> Option<&'static str> {
         "location.get" | "location.watch" => Some("location"),
         
         // Photos
-        "photos.albums" | "photos.list" | "photos.get" => Some("photos"),
+        "photos.albums" | "photos.list" | "photos.get" | "photos.search" => Some("photos"),
         
         // Screen capture
         "screen.capture" | "screen.windows" => Some("screen_recording"),
@@ -78,7 +80,7 @@ fn required_permission(method: &str) -> Option<&'static str> {
         "files.read" | "files.write" | "files.list" => Some("full_disk_access"),
         
         // Camera
-        "camera.capture" | "camera.start" | "camera.stop" => Some("camera"),
+        "camera.list" | "camera.snap" | "camera.capture" | "camera.start" | "camera.stop" => Some("camera"),
         
         // Microphone
         "microphone.record" | "microphone.start" | "microphone.stop" => Some("microphone"),
@@ -272,6 +274,8 @@ impl HandlerRegistry {
             "calendar" => calendar::handle(action, &request.params, id).await,
             "reminders" => reminders::handle(action, &request.params, id).await,
             "location" => location::handle(action, &request.params, id).await,
+            "photos" => photos::handle(action, &request.params, id).await,
+            "camera" => camera::handle(action, &request.params, id).await,
             "screen" => screen::handle(action, &request.params, id).await,
             "files" => files::handle(action, &request.params, id).await,
             "automation" => automation::handle(action, &request.params, id).await,

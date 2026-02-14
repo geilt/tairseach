@@ -191,10 +191,13 @@ impl AuthBroker {
             })?;
         drop(store);
 
-        // Check scope coverage
+        // Check scope coverage (with superset recognition)
         if let Some(required) = required_scopes {
             for s in required {
-                if !record.scopes.iter().any(|existing| existing == s) {
+                let covered = record.scopes.iter().any(|existing| {
+                    existing == s || scope_covers(existing, s)
+                });
+                if !covered {
                     return Err((
                         error_codes::SCOPE_INSUFFICIENT,
                         format!("Token missing scope: {}", s),
@@ -1019,6 +1022,59 @@ pub async fn op_config_set_default_vault(vault_id: String) -> Result<(), String>
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Check whether `existing` scope is a known superset that covers `required`.
+///
+/// Google uses full-access scopes (e.g. `https://mail.google.com/`) that
+/// supersede narrower scopes (e.g. `gmail.modify`, `gmail.readonly`).
+fn scope_covers(existing: &str, required: &str) -> bool {
+    // Google full-access scopes that cover all sub-scopes for that service
+    let supersets: &[(&str, &[&str])] = &[
+        (
+            "https://mail.google.com/",
+            &[
+                "https://www.googleapis.com/auth/gmail.modify",
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.send",
+                "https://www.googleapis.com/auth/gmail.compose",
+                "https://www.googleapis.com/auth/gmail.labels",
+                "https://www.googleapis.com/auth/gmail.settings.basic",
+                "https://www.googleapis.com/auth/gmail.settings.sharing",
+                "https://www.googleapis.com/auth/gmail.metadata",
+            ],
+        ),
+        (
+            "https://www.googleapis.com/auth/drive",
+            &[
+                "https://www.googleapis.com/auth/drive.file",
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/drive.metadata",
+                "https://www.googleapis.com/auth/drive.metadata.readonly",
+            ],
+        ),
+        (
+            "https://www.googleapis.com/auth/calendar",
+            &[
+                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/calendar.events",
+                "https://www.googleapis.com/auth/calendar.events.readonly",
+            ],
+        ),
+        (
+            "https://www.googleapis.com/auth/contacts",
+            &[
+                "https://www.googleapis.com/auth/contacts.readonly",
+            ],
+        ),
+    ];
+
+    for (superset, covered) in supersets {
+        if existing == *superset && covered.contains(&required) {
+            return true;
+        }
+    }
+    false
+}
 
 /// Check whether a token's expiry (RFC 3339) is within `margin_secs` of now.
 fn is_token_expiring(expiry: &str, margin_secs: i64) -> bool {

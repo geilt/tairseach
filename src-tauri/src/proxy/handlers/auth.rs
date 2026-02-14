@@ -204,7 +204,7 @@ async fn handle_store(params: &Value, id: Value) -> JsonRpcResponse {
     };
 
     // Validation: known providers
-    const KNOWN_PROVIDERS: &[&str] = &["google"];
+    const KNOWN_PROVIDERS: &[&str] = &["google", "oura", "onepassword", "jira", "slack", "datadog"];
     if !KNOWN_PROVIDERS.contains(&record.provider.as_str()) {
         return invalid_params(
             id,
