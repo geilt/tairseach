@@ -5,19 +5,16 @@ import SectionHeader from '../components/common/SectionHeader.vue'
 import LoadingState from '../components/common/LoadingState.vue'
 import ErrorBanner from '../components/common/ErrorBanner.vue'
 import { usePermissionsStore } from '../stores/permissions'
+import { useWorkerPoller } from '@/composables/useWorkerPoller'
 
 const store = usePermissionsStore()
 
-const refreshTimer = ref<number | null>(null)
 const flashTimers = new Set<number>()
+const { namespaceStatuses } = useWorkerPoller(12_000)
 
 // Load cached state first, then soft refresh in background.
 onMounted(async () => {
   await store.init()
-
-  refreshTimer.value = window.setInterval(() => {
-    store.loadPermissions({ silent: true })
-  }, 12_000)
 })
 
 onActivated(() => {
@@ -25,12 +22,14 @@ onActivated(() => {
   void store.loadDefinitions({ silent: true })
 })
 
-onUnmounted(() => {
-  if (refreshTimer.value != null) {
-    clearInterval(refreshTimer.value)
-    refreshTimer.value = null
+watch(
+  () => namespaceStatuses.value,
+  () => {
+    void store.loadPermissions({ silent: true })
   }
+)
 
+onUnmounted(() => {
   for (const timer of flashTimers) {
     clearTimeout(timer)
   }

@@ -5,6 +5,7 @@ import SectionHeader from '@/components/common/SectionHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
 import { api } from '@/api/tairseach'
+import { useWorkerPoller } from '@/composables/useWorkerPoller'
 
 type JsonObj = Record<string, any>
 interface ToolDef {
@@ -39,12 +40,16 @@ const router = useRouter()
 const loading = ref(true)
 const error = ref<string | null>(null)
 const manifests = ref<ManifestDef[]>([])
-const credentials = ref<Array<{ credential_type: string }>>([])
+const credentials = ref<Array<{ type: string }>>([])
 const permissions = ref<Array<{ id: string; status: string }>>([])
 const expanded = ref<string | null>(null)
 const testing = ref<string | null>(null)
 const testResult = ref<Record<string, unknown>>({})
 const testError = ref<Record<string, string>>({})
+const installingToOpenClaw = ref(false)
+const openclawInstallResult = ref<{ success: boolean; message: string } | null>(null)
+
+const { proxyStatus, namespaceStatuses, socketAlive } = useWorkerPoller()
 
 const EMOJI_BY_ID: Record<string, string> = {
   contacts: '👥',
@@ -110,7 +115,7 @@ const cards = computed<IntegrationCard[]>(() => {
 
 function hasCredential(type: string): boolean {
   const wanted = normalizeType(type)
-  const all = credentials.value.map(c => normalizeType(c.credential_type))
+  const all = credentials.value.map(c => normalizeType(c.type))
   if (all.includes(wanted)) return true
 
   for (const [root, aliases] of Object.entries(CREDENTIAL_ALIASES)) {
@@ -137,13 +142,18 @@ function permissionStatus(card: IntegrationCard) {
   return { ok: missing.length === 0, missing }
 }
 
+function getNamespaceStatus(manifestId: string) {
+  const namespace = manifestId.split('.')[0] || 'default'
+  return namespaceStatuses.value.find(s => s.namespace === namespace)
+}
+
 async function loadAll() {
   loading.value = true
   error.value = null
   try {
     const [allManifests, allCreds, allPerms] = await Promise.all([
       api.mcp.manifests(),
-      api.auth.listCredentials(),
+      api.auth.credentialsList(),
       api.permissions.all(),
     ])
 
@@ -189,6 +199,18 @@ async function runTest(card: IntegrationCard) {
   }
 }
 
+async function installToOpenClaw() {
+  installingToOpenClaw.value = true
+  openclawInstallResult.value = null
+  try {
+    openclawInstallResult.value = await api.mcp.installToOpenClaw()
+  } catch (e) {
+    openclawInstallResult.value = { success: false, message: String(e) }
+  } finally {
+    installingToOpenClaw.value = false
+  }
+}
+
 onMounted(loadAll)
 </script>
 
@@ -200,6 +222,21 @@ onMounted(loadAll)
       description="Available Bridges"
     />
     <p class="-mt-4 mb-6 text-sm text-naonur-smoke">Bridges to the Otherworld — credentials, permissions, and tools at a glance.</p>
+
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="naonur-card">
+        <p class="text-xs text-naonur-smoke">Proxy</p>
+        <p :class="proxyStatus.running ? 'text-naonur-moss' : 'text-naonur-blood'">{{ proxyStatus.running ? 'Running' : 'Stopped' }}</p>
+      </div>
+      <div class="naonur-card">
+        <p class="text-xs text-naonur-smoke">Socket</p>
+        <p :class="socketAlive ? 'text-naonur-moss' : 'text-naonur-blood'">{{ socketAlive ? 'Alive' : 'Dead' }}</p>
+      </div>
+      <div class="naonur-card">
+        <p class="text-xs text-naonur-smoke">Namespaces</p>
+        <p class="text-naonur-bone">{{ namespaceStatuses.length }} tracked</p>
+      </div>
+    </div>
 
     <LoadingState v-if="loading" message="Gathering manifest bridges..." />
     <ErrorBanner v-else-if="error" :message="error" @retry="loadAll" />
@@ -214,6 +251,11 @@ onMounted(loadAll)
               <p class="text-sm text-naonur-ash">{{ card.description }}</p>
 
               <div class="mt-3 space-y-1 text-xs">
+                <div>
+                  <span :class="getNamespaceStatus(card.id)?.connected ? 'text-naonur-moss' : 'text-naonur-blood'">
+                    {{ getNamespaceStatus(card.id)?.connected ? '✅ Namespace Connected' : '❌ Namespace Disconnected' }}
+                  </span>
+                </div>
                 <div>
                   <span :class="credentialStatus(card).ok ? 'text-naonur-moss' : 'text-naonur-blood'">
                     {{ credentialStatus(card).ok ? '✅ Credentials' : '❌ Credentials' }}
@@ -259,6 +301,17 @@ onMounted(loadAll)
 
         <pre v-if="testResult[card.id]" class="mt-3 text-xs bg-naonur-void border border-naonur-fog/30 p-2 rounded overflow-auto max-h-44">{{ JSON.stringify(testResult[card.id], null, 2) }}</pre>
         <pre v-if="testError[card.id]" class="mt-3 text-xs bg-naonur-blood/10 border border-naonur-blood/30 p-2 rounded overflow-auto">{{ testError[card.id] }}</pre>
+      </div>
+
+      <div class="naonur-card">
+        <h3 class="font-display text-naonur-bone mb-2">OpenClaw Install Wizard</h3>
+        <p class="text-xs text-naonur-smoke mb-3">Install Tairseach MCP tools into OpenClaw config.</p>
+        <button class="btn btn-primary text-xs" :disabled="installingToOpenClaw" @click="installToOpenClaw">
+          {{ installingToOpenClaw ? 'Installing…' : 'Install to OpenClaw' }}
+        </button>
+        <p v-if="openclawInstallResult" :class="['mt-2 text-xs', openclawInstallResult.success ? 'text-naonur-moss' : 'text-naonur-blood']">
+          {{ openclawInstallResult.message }}
+        </p>
       </div>
     </div>
   </div>

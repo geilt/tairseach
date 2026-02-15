@@ -1,40 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import Toast, { type ToastProps } from './Toast.vue'
+import { useToast } from '@/composables/useToast'
+import Toast from './Toast.vue'
 
-// Toast store - can be made global via provide/inject or Pinia
-const toasts = ref<ToastProps[]>([])
-
-let toastIdCounter = 0
-
-function addToast(
-  message: string,
-  variant: ToastProps['variant'] = 'info',
-  duration = 5000
-) {
-  const id = `toast-${++toastIdCounter}`
-  toasts.value.push({ id, message, variant, duration })
-  
-  // Limit visible toasts
-  if (toasts.value.length > 5) {
-    toasts.value.shift()
-  }
-}
-
-function removeToast(id: string) {
-  const index = toasts.value.findIndex(t => t.id === id)
-  if (index !== -1) {
-    toasts.value.splice(index, 1)
-  }
-}
-
-// Expose methods for external use
-defineExpose({
-  success: (message: string, duration?: number) => addToast(message, 'success', duration),
-  warning: (message: string, duration?: number) => addToast(message, 'warning', duration),
-  error: (message: string, duration?: number) => addToast(message, 'error', duration),
-  info: (message: string, duration?: number) => addToast(message, 'info', duration),
-})
+const { toasts, remove } = useToast()
 </script>
 
 <template>
@@ -48,7 +16,7 @@ defineExpose({
           v-for="toast in toasts"
           :key="toast.id"
           v-bind="toast"
-          @dismiss="removeToast"
+          @dismiss="remove"
         />
       </TransitionGroup>
     </div>

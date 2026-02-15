@@ -6,7 +6,6 @@ import MonitorView from '../views/MonitorView.vue'
 import ActivityView from '../views/ActivityView.vue'
 import ProfilesView from '../views/ProfilesView.vue'
 import AuthView from '../views/AuthView.vue'
-import MCPView from '../views/MCPView.vue'
 import IntegrationsView from '../views/IntegrationsView.vue'
 
 const router = createRouter({
@@ -55,12 +54,6 @@ const router = createRouter({
       meta: { title: 'Auth Services' },
     },
     {
-      path: '/mcp',
-      name: 'mcp',
-      component: MCPView,
-      meta: { title: 'MCP Tools' },
-    },
-    {
       path: '/integrations',
       name: 'integrations',
       component: IntegrationsView,
@@ -69,7 +62,6 @@ const router = createRouter({
   ],
 })
 
-// Update document title on navigation
 router.afterEach((to) => {
   const title = to.meta.title as string
   document.title = title ? `${title} — Tairseach` : 'Tairseach'
