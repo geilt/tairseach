@@ -93,7 +93,7 @@ fn parse_activity_line(line: &str, fallback_idx: usize) -> ActivityEvent {
 }
 
 #[tauri::command]
-pub async fn get_events(limit: Option<usize>) -> Result<Vec<ActivityEvent>, String> {
+pub async fn monitor_events_list(limit: Option<usize>) -> Result<Vec<ActivityEvent>, String> {
     let limit = limit.unwrap_or(100).max(1).min(2000);
     let path = proxy_log_path();
 
@@ -123,7 +123,7 @@ pub async fn get_events(limit: Option<usize>) -> Result<Vec<ActivityEvent>, Stri
 }
 
 #[tauri::command]
-pub async fn get_manifest_summary() -> Result<ManifestSummary, String> {
+pub async fn monitor_manifest_summary_get() -> Result<ManifestSummary, String> {
     let root = manifests_root();
     let mut manifests = 0usize;
     let mut tools = 0usize;
@@ -175,14 +175,14 @@ pub async fn get_manifest_summary() -> Result<ManifestSummary, String> {
 
 /// Load all manifests from disk
 #[tauri::command]
-pub async fn get_all_manifests() -> Result<Vec<Manifest>, String> {
+pub async fn manifests_all_list() -> Result<Vec<Manifest>, String> {
     let root = manifests_root();
     load_manifests(&root)
 }
 
 /// Check if the Tairseach socket is alive and responding
 #[tauri::command]
-pub async fn check_socket_alive() -> Result<serde_json::Value, String> {
+pub async fn monitor_socket_check() -> Result<serde_json::Value, String> {
     let socket_path = crate::common::socket_path()
         .unwrap_or_else(|_| PathBuf::from(".tairseach/tairseach.sock"));
 
@@ -241,7 +241,7 @@ pub async fn check_socket_alive() -> Result<serde_json::Value, String> {
 
 /// Test an MCP tool by calling it through the socket
 #[tauri::command]
-pub async fn test_mcp_tool(
+pub async fn monitor_mcp_tool_test(
     tool_name: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -299,8 +299,8 @@ pub async fn test_mcp_tool(
 
 /// Check namespace connection statuses by pinging socket with a tool from each manifest
 #[tauri::command]
-pub async fn get_namespace_statuses() -> Result<Vec<serde_json::Value>, String> {
-    let manifests = get_all_manifests().await?;
+pub async fn monitor_namespace_statuses_get() -> Result<Vec<serde_json::Value>, String> {
+    let manifests = manifests_all_list().await?;
     let socket_path = crate::common::socket_path()
         .unwrap_or_else(|_| PathBuf::from(".tairseach/tairseach.sock"));
     
@@ -365,7 +365,7 @@ async fn test_tool_connectivity(socket_path: &PathBuf) -> Result<(), String> {
 
 /// Install Tairseach MCP server config into OpenClaw
 #[tauri::command]
-pub async fn install_tairseach_to_openclaw(
+pub async fn monitor_openclaw_install(
     config_path: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use std::io::Write;
@@ -459,4 +459,61 @@ fn find_tairseach_mcp_binary() -> Result<String, String> {
     // TODO: In production, use tauri::api::process::Command::sidecar_path() or similar
     // For now, return the expected path
     Ok(dev_path.display().to_string())
+}
+
+/// Error object for frontend beaconing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorReport {
+    pub ts: String,
+    pub source: String,
+    pub severity: String,
+    pub code: String,
+    pub message: String,
+    pub context: Option<serde_json::Value>,
+    pub stack: Option<String>,
+}
+
+/// Submit an error report from frontend for JSONL logging
+#[tauri::command]
+pub async fn error_report_submit(report: ErrorReport) -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    
+    let logs_dir = crate::common::logs_dir()?;
+    
+    // Create logs directory if it doesn't exist
+    if !logs_dir.exists() {
+        std::fs::create_dir_all(&logs_dir)
+            .map_err(|e| format!("Failed to create logs directory: {}", e))?;
+    }
+    
+    let errors_path = logs_dir.join("errors.jsonl");
+    
+    // Check file size for rotation (5MB limit)
+    if errors_path.exists() {
+        let metadata = std::fs::metadata(&errors_path)
+            .map_err(|e| format!("Failed to read error log metadata: {}", e))?;
+        
+        if metadata.len() > 5_000_000 {
+            // Rotate: rename to errors.jsonl.1
+            let backup_path = logs_dir.join("errors.jsonl.1");
+            std::fs::rename(&errors_path, &backup_path)
+                .map_err(|e| format!("Failed to rotate error log: {}", e))?;
+        }
+    }
+    
+    // Append error as JSONL line
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&errors_path)
+        .map_err(|e| format!("Failed to open error log: {}", e))?;
+    
+    let json_line = serde_json::to_string(&report)
+        .map_err(|e| format!("Failed to serialize error report: {}", e))?;
+    
+    writeln!(file, "{}", json_line)
+        .map_err(|e| format!("Failed to write error log: {}", e))?;
+    
+    Ok(())
 }

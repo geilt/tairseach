@@ -34,14 +34,14 @@ async function call<T>(command: string, params?: Record<string, unknown>): Promi
 
 export const api = {
   auth: {
-    status: () => call<AuthStatus>('auth_status'),
-    providers: () => call<string[]>('auth_providers'),
-    accounts: (provider: string | null = null) => call<AccountInfo[]>('auth_accounts', { provider }),
+    status: () => call<AuthStatus>('auth_status_get'),
+    providers: () => call<string[]>('auth_providers_list'),
+    accounts: (provider: string | null = null) => call<AccountInfo[]>('auth_accounts_list', { provider }),
     getToken: (provider: string, account: string, scopes?: string[]) => call<TokenInfo>('auth_get_token', { provider, account, scopes }),
     refreshToken: (provider: string, account: string) => call<void>('auth_refresh_token', { provider, account }),
     revokeToken: (provider: string, account: string) => call<void>('auth_revoke_token', { provider, account }),
     storeToken: (record: TokenRecord) => call<void>('auth_store_token', { record }),
-    credentialTypes: () => call<CredentialType[]>('auth_credential_types'),
+    credentialTypes: () => call<CredentialType[]>('auth_credential_types_list'),
     credentialsList: (credType: string | null = null) => call<CredentialMetadata[]>('auth_credentials_list', { credType }),
     credentialsStore: (credType: string, label: string, fields: Record<string, string>) =>
       call<void>('auth_credentials_store', { credType, label, fields }),
@@ -54,45 +54,56 @@ export const api = {
   },
   onePassword: {
     listVaults: () => call<{ vaults: Vault[]; default_vault: string | null }>('op_vaults_list'),
-    setDefaultVault: (vaultId: string) => call<void>('op_config_set_default_vault', { vaultId }),
+    setDefaultVault: (vaultId: string) => call<void>('op_config_default_vault_set', { vaultId }),
   },
   config: {
-    get: () => call<{ raw: OpenClawConfig; path: string }>('get_config'),
-    set: (config: OpenClawConfig) => call<void>('set_config', { config }),
-    providerModels: () => call<Record<string, ModelOption[]>>('get_provider_models'),
-    environment: () => call<EnvironmentInfo>('get_environment'),
-    getNodeConfig: () => call<{ config: NodeConfig; path: string }>('get_node_config'),
-    setNodeConfig: (config: NodeConfig) => call<void>('set_node_config', { config }),
-    getExecApprovals: () => call<{ approvals: ExecApproval[]; path: string }>('get_exec_approvals'),
-    setExecApprovals: (approvals: ExecApproval[]) => call<void>('set_exec_approvals', { approvals }),
+    get: () => call<{ raw: OpenClawConfig; path: string }>('config_app_get'),
+    set: (config: OpenClawConfig) => call<void>('config_app_set', { config }),
+    providerModels: () => call<Record<string, ModelOption[]>>('config_models_list'),
+    environment: () => call<EnvironmentInfo>('config_environment_get'),
+    getNodeConfig: () => call<{ config: NodeConfig; path: string }>('config_node_get'),
+    setNodeConfig: (config: NodeConfig) => call<void>('config_node_set', { config }),
+    getExecApprovals: () => call<{ approvals: ExecApproval[]; path: string }>('config_exec_approvals_get'),
+    setExecApprovals: (approvals: ExecApproval[]) => call<void>('config_exec_approvals_set', { approvals }),
   },
   permissions: {
-    definitions: () => call<PermissionDefinition[]>('get_permission_definitions'),
+    definitions: () => call<PermissionDefinition[]>('permissions_definitions_get'),
     all: () => call<Permission[]>('check_all_permissions'),
-    check: (permissionId: string) => call<Permission>('check_permission', { permissionId }),
-    request: (permissionId: string) => call<void>('request_permission', { permissionId }),
-    openSettings: (pane: string) => call<void>('open_permission_settings', { pane }),
+    check: (permissionId: string) => call<Permission>('permissions_single_check', { permissionId }),
+    request: (permissionId: string) => call<void>('permissions_single_request', { permissionId }),
+    openSettings: (pane: string) => call<void>('permissions_settings_open', { pane }),
   },
   mcp: {
-    manifests: () => call<Manifest[]>('get_all_manifests'),
-    testTool: (toolName: string, params: Record<string, unknown>) => call<unknown>('test_mcp_tool', { toolName, params }),
-    installToOpenClaw: () => call<{ success: boolean; message: string; config_path?: string }>('install_tairseach_to_openclaw'),
-    manifestSummary: () => call<ManifestSummary>('get_manifest_summary'),
+    manifests: () => call<Manifest[]>('manifests_all_list'),
+    testTool: (toolName: string, params: Record<string, unknown>) => call<unknown>('monitor_mcp_tool_test', { toolName, params }),
+    installToOpenClaw: () => call<{ success: boolean; message: string; config_path?: string }>('monitor_openclaw_install'),
+    manifestSummary: () => call<ManifestSummary>('monitor_manifest_summary_get'),
   },
   google: {
-    getConfig: () => call<GoogleConfig | null>('get_google_oauth_config'),
-    getStatus: () => call<GoogleStatus>('get_google_oauth_status'),
-    saveConfig: (clientId: string, clientSecret: string) => call<void>('save_google_oauth_config', { clientId, clientSecret }),
+    getConfig: () => call<GoogleConfig | null>('config_google_oauth_get'),
+    getStatus: () => call<GoogleStatus>('config_google_oauth_status_get'),
+    saveConfig: (clientId: string, clientSecret: string) => call<void>('config_google_oauth_save', { clientId, clientSecret }),
     testConfig: (clientId: string, clientSecret: string) =>
-      call<{ ok: boolean; message: string; error?: string }>('test_google_oauth_config', { clientId, clientSecret }),
+      call<{ ok: boolean; message: string; error?: string }>('config_google_oauth_test', { clientId, clientSecret }),
   },
   events: {
-    list: (limit: number) => call<ActivityEvent[]>('get_events', { limit }),
+    list: (limit: number) => call<ActivityEvent[]>('monitor_events_list', { limit }),
+  },
+  errors: {
+    submit: (report: {
+      ts: string
+      source: string
+      severity: string
+      code: string
+      message: string
+      context?: Record<string, unknown>
+      stack?: string
+    }) => call<void>('error_report_submit', { report }),
   },
   system: {
-    proxyStatus: () => call<ProxyStatus>('get_proxy_status'),
-    socketAlive: () => call<SocketStatus>('check_socket_alive'),
-    namespaceStatuses: () => call<NamespaceStatus[]>('get_namespace_statuses'),
+    proxyStatus: () => call<ProxyStatus>('proxy_status_get'),
+    socketAlive: () => call<SocketStatus>('monitor_socket_check'),
+    namespaceStatuses: () => call<NamespaceStatus[]>('monitor_namespace_statuses_get'),
     invokeCommand: <T>(command: string, params?: Record<string, unknown>) => call<T>(command, params),
   },
 }

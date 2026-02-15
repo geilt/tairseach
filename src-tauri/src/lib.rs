@@ -103,7 +103,7 @@ async fn start_proxy_server_internal() -> Result<(), String> {
 
 /// Get proxy server status
 #[tauri::command]
-async fn get_proxy_status() -> Result<serde_json::Value, String> {
+async fn proxy_status_get() -> Result<serde_json::Value, String> {
     let state = PROXY_STATE.read().await;
     
     Ok(serde_json::json!({
@@ -114,14 +114,14 @@ async fn get_proxy_status() -> Result<serde_json::Value, String> {
 
 /// Start the proxy server (if not already running)
 #[tauri::command]
-async fn start_proxy_server() -> Result<serde_json::Value, String> {
+async fn proxy_server_start() -> Result<serde_json::Value, String> {
     start_proxy_server_internal().await?;
-    get_proxy_status().await
+    proxy_status_get().await
 }
 
 /// Stop the proxy server
 #[tauri::command]
-async fn stop_proxy_server() -> Result<serde_json::Value, String> {
+async fn proxy_server_stop() -> Result<serde_json::Value, String> {
     let state = PROXY_STATE.read().await;
     
     if let Some(server) = &state.server {
@@ -149,52 +149,53 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             // Permissions - these are defined with #[tauri::command] in permissions/mod.rs
-            permissions::get_permissions,
-            permissions::grant_permission,
-            permissions::revoke_permission,
-            permissions::check_permission,
+            permissions::permissions_all_get,
+            permissions::permissions_single_grant,
+            permissions::permissions_single_revoke,
+            permissions::permissions_single_check,
             permissions::check_all_permissions,
-            permissions::request_permission,
-            permissions::trigger_permission_registration,
-            permissions::open_permission_settings,
-            permissions::get_permission_definitions,
+            permissions::permissions_single_request,
+            permissions::permissions_registration_trigger,
+            permissions::permissions_settings_open,
+            permissions::permissions_definitions_get,
             // Config
-            config::get_config,
-            config::set_config,
-            config::get_provider_models,
-            config::get_google_oauth_config,
-            config::save_google_oauth_config,
-            config::test_google_oauth_config,
-            config::get_google_oauth_status,
-            config::get_environment,
-            config::get_node_config,
-            config::set_node_config,
-            config::get_exec_approvals,
-            config::set_exec_approvals,
+            config::config_app_get,
+            config::config_app_set,
+            config::config_models_list,
+            config::config_google_oauth_get,
+            config::config_google_oauth_save,
+            config::config_google_oauth_test,
+            config::config_google_oauth_status_get,
+            config::config_environment_get,
+            config::config_node_get,
+            config::config_node_set,
+            config::config_exec_approvals_get,
+            config::config_exec_approvals_set,
             // Monitor
-            monitor::get_events,
-            monitor::get_manifest_summary,
-            monitor::get_all_manifests,
-            monitor::check_socket_alive,
-            monitor::test_mcp_tool,
-            monitor::get_namespace_statuses,
-            monitor::install_tairseach_to_openclaw,
+            monitor::monitor_events_list,
+            monitor::monitor_manifest_summary_get,
+            monitor::manifests_all_list,
+            monitor::monitor_socket_check,
+            monitor::monitor_mcp_tool_test,
+            monitor::monitor_namespace_statuses_get,
+            monitor::monitor_openclaw_install,
+            monitor::error_report_submit,
             // Profiles
-            profiles::get_profiles,
-            profiles::save_profile,
+            profiles::profiles_all_list,
+            profiles::profiles_single_save,
             // Auth
-            auth::authenticate,
-            auth::check_auth,
-            auth::auth_status,
-            auth::auth_providers,
-            auth::auth_accounts,
+            auth::auth_session_create,
+            auth::auth_session_check,
+            auth::auth_status_get,
+            auth::auth_providers_list,
+            auth::auth_accounts_list,
             auth::auth_get_token,
             auth::auth_refresh_token,
             auth::auth_revoke_token,
             auth::auth_store_token,
             auth::auth_start_google_oauth,
             // Credentials
-            auth::auth_credential_types,
+            auth::auth_credential_types_list,
             auth::auth_credentials_store,
             auth::auth_credentials_list,
             auth::auth_credentials_get,
@@ -202,11 +203,11 @@ pub fn run() {
             auth::auth_credentials_rename,
             auth::auth_credential_types_custom_create,
             auth::op_vaults_list,
-            auth::op_config_set_default_vault,
+            auth::op_config_default_vault_set,
             // Proxy
-            get_proxy_status,
-            start_proxy_server,
-            stop_proxy_server,
+            proxy_status_get,
+            proxy_server_start,
+            proxy_server_stop,
         ])
         .setup(|_app| {
             #[cfg(debug_assertions)]

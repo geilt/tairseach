@@ -140,77 +140,77 @@ fn convert_permission_status(status: sys_perms::PermissionStatus) -> PermissionS
 }
 
 async fn check_contacts_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::CONTACTS) {
+    match sys_perms::permissions_single_check(sys_perms::ids::CONTACTS) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_calendar_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::CALENDAR) {
+    match sys_perms::permissions_single_check(sys_perms::ids::CALENDAR) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_reminders_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::REMINDERS) {
+    match sys_perms::permissions_single_check(sys_perms::ids::REMINDERS) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_location_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::LOCATION) {
+    match sys_perms::permissions_single_check(sys_perms::ids::LOCATION) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_photos_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::PHOTOS) {
+    match sys_perms::permissions_single_check(sys_perms::ids::PHOTOS) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_camera_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::CAMERA) {
+    match sys_perms::permissions_single_check(sys_perms::ids::CAMERA) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_microphone_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::MICROPHONE) {
+    match sys_perms::permissions_single_check(sys_perms::ids::MICROPHONE) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_screen_recording_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::SCREEN_RECORDING) {
+    match sys_perms::permissions_single_check(sys_perms::ids::SCREEN_RECORDING) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_accessibility_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::ACCESSIBILITY) {
+    match sys_perms::permissions_single_check(sys_perms::ids::ACCESSIBILITY) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_full_disk_access_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::FULL_DISK_ACCESS) {
+    match sys_perms::permissions_single_check(sys_perms::ids::FULL_DISK_ACCESS) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
 }
 
 async fn check_automation_permission() -> PermissionStatus {
-    match sys_perms::check_permission(sys_perms::ids::AUTOMATION) {
+    match sys_perms::permissions_single_check(sys_perms::ids::AUTOMATION) {
         Ok(perm) => convert_permission_status(perm.status),
         Err(_) => PermissionStatus::Unknown,
     }
