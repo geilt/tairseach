@@ -28,7 +28,7 @@ Add navigation link to sidebar (if needed).
 ```vue
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { api } from '@/api/tairseach'
 
 interface YourDataType {
   id: string
@@ -44,9 +44,7 @@ async function fetchData() {
   loading.value = true
   error.value = null
   try {
-    const result = await invoke<YourDataType[]>('your_command', {
-      // parameters here
-    })
+    const result = await api.yourSection.yourMethod(/* params */)
     data.value = result
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -206,6 +204,7 @@ text-sm, text-base   /* Body text sizes */
 - [ ] Create `src/views/YourView.vue`
 - [ ] Add route in `src/router/index.ts`
 - [ ] Use `<script setup>` with TypeScript
+- [ ] Use `api` layer (`@/api/tairseach`) — never call `invoke()` directly in views
 - [ ] Define proper TypeScript interfaces
 - [ ] Use Naonur design tokens consistently
 - [ ] Handle loading/error/empty states
@@ -221,30 +220,13 @@ text-sm, text-base   /* Body text sizes */
 
 ### Polling Data
 ```typescript
-import { onMounted, onUnmounted } from 'vue'
+import { useWorkerPoller } from '@/composables/useWorkerPoller'
 
-let timer: number | null = null
-
-function startPolling() {
-  timer = window.setInterval(() => {
-    void fetchData()
-  }, 2000)
-}
-
-function stopPolling() {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
+const { refresh } = useWorkerPoller(12_000)
 
 onMounted(() => {
   void fetchData()
-  startPolling()
-})
-
-onUnmounted(() => {
-  stopPolling()
+  refresh()
 })
 ```
 

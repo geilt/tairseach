@@ -1,4 +1,4 @@
-import { onScopeDispose, ref, readonly } from 'vue'
+import { getCurrentScope, onScopeDispose, ref, readonly } from 'vue'
 
 export interface Toast {
   id: string
@@ -51,12 +51,14 @@ function removeToast(id: string) {
 }
 
 export function useToast() {
-  onScopeDispose(() => {
-    for (const timer of toastTimers.values()) {
-      clearTimeout(timer)
-    }
-    toastTimers.clear()
-  })
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      for (const timer of toastTimers.values()) {
+        clearTimeout(timer)
+      }
+      toastTimers.clear()
+    })
+  }
 
   return {
     toasts: readonly(toasts),
@@ -67,3 +69,11 @@ export function useToast() {
     remove: removeToast,
   }
 }
+
+export const showToast = {
+  success: (message: string, duration?: number) => addToast(message, 'success', duration),
+  warning: (message: string, duration?: number) => addToast(message, 'warning', duration),
+  error: (message: string, duration?: number) => addToast(message, 'error', duration),
+  info: (message: string, duration?: number) => addToast(message, 'info', duration),
+}
+

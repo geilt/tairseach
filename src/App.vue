@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onErrorCaptured, ref } from 'vue'
 import TabNav from './components/common/TabNav.vue'
 import ToastContainer from './components/common/ToastContainer.vue'
+import { showToast } from './composables/useToast'
 
 const toastContainer = ref<InstanceType<typeof ToastContainer> | null>(null)
+
+onErrorCaptured((err, _instance, info) => {
+  console.error('[App Error Boundary]', err, info)
+  showToast.error(`View error: ${info}`)
+  return false
+})
 </script>
 
 <template>
@@ -50,12 +57,10 @@ const toastContainer = ref<InstanceType<typeof ToastContainer> | null>(null)
   opacity: 0;
 }
 
-/* Prevent layout shift during transitions */
 main > div {
   min-height: 100%;
 }
 
-/* GPU acceleration for smoother transitions */
 .page-enter-active > *,
 .page-leave-active > * {
   transform: translateZ(0);

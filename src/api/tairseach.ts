@@ -46,7 +46,8 @@ export const api = {
     credentialsStore: (credType: string, label: string, fields: Record<string, string>) =>
       call<void>('auth_credentials_store', { credType, label, fields }),
     credentialsDelete: (credType: string, label: string) => call<void>('auth_credentials_delete', { credType, label }),
-    listCredentials: () => call<Array<{ credential_type: string; created_at: string }>>('auth_list_credentials'),
+    credentialsRename: (credType: string, oldLabel: string, newLabel: string) =>
+      call<void>('auth_credentials_rename', { credType, oldLabel, newLabel }),
     customCredentialTypeCreate: (type: string, displayName: string, fields: CredentialType['fields']) =>
       call<void>('auth_credential_types_custom_create', { type, displayName, fields }),
     startGoogleOauth: () => call<{ success: boolean; account: string }>('auth_start_google_oauth'),

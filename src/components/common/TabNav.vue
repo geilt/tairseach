@@ -23,7 +23,6 @@ const navItems: NavItem[] = [
   { id: 'profiles', label: 'Profiles', emoji: '👤', route: '/profiles' },
   { id: 'auth', label: 'Auth', emoji: '🔑', route: '/auth' },
   { id: 'integrations', label: 'Integrations', emoji: '🔗', route: '/integrations' },
-  { id: 'mcp', label: 'MCP', emoji: '🔌', route: '/mcp' },
 ]
 
 const activeTab = computed(() => {
