@@ -7,7 +7,7 @@
   "category": "security",
   "tools": [
     {
-      "name": "permissions_check",
+      "name": "permissions.check",
       "description": "Check one permission.",
       "inputSchema": {
         "type": "object",
@@ -19,14 +19,14 @@
       "annotations": {"readOnlyHint": true}
     },
     {
-      "name": "permissions_list",
+      "name": "permissions.list",
       "description": "List all permissions.",
       "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
       "outputSchema": {"type": "object", "required": ["permissions", "total"], "properties": {"permissions": {"type": "array"}, "total": {"type": "integer"}}},
       "annotations": {"readOnlyHint": true}
     },
     {
-      "name": "permissions_request",
+      "name": "permissions.request",
       "description": "Request one permission.",
       "inputSchema": {
         "type": "object",
@@ -41,9 +41,9 @@
     "type": "internal",
     "module": "proxy.handlers.permissions",
     "methods": {
-      "permissions_check": "permissions.check",
-      "permissions_list": "permissions.list",
-      "permissions_request": "permissions.request"
+      "permissions.check": "permissions.check",
+      "permissions.list": "permissions.list",
+      "permissions.request": "permissions.request"
     }
   },
   "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}

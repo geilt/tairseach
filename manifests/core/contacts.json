@@ -9,23 +9,23 @@
     "permissions": [{ "name": "contacts" }]
   },
   "tools": [
-    {"name":"contacts_list","description":"List contacts with pagination.","inputSchema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1},"offset":{"type":"integer","minimum":0}},"additionalProperties":false},"outputSchema":{"type":"object","required":["contacts","count","limit","offset"],"properties":{"contacts":{"type":"array"},"count":{"type":"integer"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
-    {"name":"contacts_search","description":"Search contacts by query string.","inputSchema":{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1}},"additionalProperties":false},"outputSchema":{"type":"object","required":["query","contacts","count"],"properties":{"query":{"type":"string"},"contacts":{"type":"array"},"count":{"type":"integer"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
-    {"name":"contacts_get","description":"Get a contact by ID.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
-    {"name":"contacts_create","description":"Create a contact.","inputSchema":{"type":"object","properties":{"firstName":{"type":"string"},"lastName":{"type":"string"},"organization":{"type":"string"},"emails":{"type":"array","items":{"type":"string"}},"phones":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},"outputSchema":{"type":"object","required":["created","contact"],"properties":{"created":{"type":"boolean"},"contact":{"type":"object"}},"additionalProperties":true},"annotations":{"destructiveHint":false,"openWorldHint":false}},
-    {"name":"contacts_update","description":"Update a contact.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"},"firstName":{"type":"string"},"lastName":{"type":"string"},"organization":{"type":"string"},"emails":{"type":"array","items":{"type":"string"}},"phones":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},"outputSchema":{"type":"object","required":["updated","contact"],"properties":{"updated":{"type":"boolean"},"contact":{"type":"object"}},"additionalProperties":true},"annotations":{"destructiveHint":false,"openWorldHint":false}},
-    {"name":"contacts_delete","description":"Delete a contact.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["deleted","id"],"properties":{"deleted":{"type":"boolean"},"id":{"type":"string"}},"additionalProperties":true},"annotations":{"destructiveHint":true,"openWorldHint":false}}
+    {"name":"contacts.list","description":"List contacts with pagination.","inputSchema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1},"offset":{"type":"integer","minimum":0}},"additionalProperties":false},"outputSchema":{"type":"object","required":["contacts","count","limit","offset"],"properties":{"contacts":{"type":"array"},"count":{"type":"integer"},"limit":{"type":"integer"},"offset":{"type":"integer"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+    {"name":"contacts.search","description":"Search contacts by query string.","inputSchema":{"type":"object","required":["query"],"properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1}},"additionalProperties":false},"outputSchema":{"type":"object","required":["query","contacts","count"],"properties":{"query":{"type":"string"},"contacts":{"type":"array"},"count":{"type":"integer"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+    {"name":"contacts.get","description":"Get a contact by ID.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":true},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+    {"name":"contacts.create","description":"Create a contact.","inputSchema":{"type":"object","properties":{"firstName":{"type":"string"},"lastName":{"type":"string"},"organization":{"type":"string"},"emails":{"type":"array","items":{"type":"string"}},"phones":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},"outputSchema":{"type":"object","required":["created","contact"],"properties":{"created":{"type":"boolean"},"contact":{"type":"object"}},"additionalProperties":true},"annotations":{"destructiveHint":false,"openWorldHint":false}},
+    {"name":"contacts.update","description":"Update a contact.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"},"firstName":{"type":"string"},"lastName":{"type":"string"},"organization":{"type":"string"},"emails":{"type":"array","items":{"type":"string"}},"phones":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},"outputSchema":{"type":"object","required":["updated","contact"],"properties":{"updated":{"type":"boolean"},"contact":{"type":"object"}},"additionalProperties":true},"annotations":{"destructiveHint":false,"openWorldHint":false}},
+    {"name":"contacts.delete","description":"Delete a contact.","inputSchema":{"type":"object","required":["id"],"properties":{"id":{"type":"string"}},"additionalProperties":false},"outputSchema":{"type":"object","required":["deleted","id"],"properties":{"deleted":{"type":"boolean"},"id":{"type":"string"}},"additionalProperties":true},"annotations":{"destructiveHint":true,"openWorldHint":false}}
   ],
   "implementation": {
     "type": "internal",
     "module": "proxy.handlers.contacts",
     "methods": {
-      "contacts_list": "contacts.list",
-      "contacts_search": "contacts.search",
-      "contacts_get": "contacts.get",
-      "contacts_create": "contacts.create",
-      "contacts_update": "contacts.update",
-      "contacts_delete": "contacts.delete"
+      "contacts.list": "contacts.list",
+      "contacts.search": "contacts.search",
+      "contacts.get": "contacts.get",
+      "contacts.create": "contacts.create",
+      "contacts.update": "contacts.update",
+      "contacts.delete": "contacts.delete"
     }
   },
   "compatibility": {"mcpProtocol":"2025-03-26","os":["macos"]}

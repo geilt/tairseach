@@ -7,14 +7,14 @@
   "category": "observability",
   "tools": [
     {
-      "name": "server_status",
+      "name": "server.status",
       "description": "Get server status and version.",
       "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
       "outputSchema": {"type": "object", "required": ["status", "version"], "properties": {"status": {"type": "string"}, "version": {"type": "string"}}},
       "annotations": {"readOnlyHint": true}
     },
     {
-      "name": "server_shutdown",
+      "name": "server.shutdown",
       "description": "Initiate graceful shutdown.",
       "mcp_expose": false,
       "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
@@ -26,8 +26,8 @@
     "type": "internal",
     "module": "proxy.handlers.registry",
     "methods": {
-      "server_status": "server.status",
-      "server_shutdown": "server.shutdown"
+      "server.status": "server.status",
+      "server.shutdown": "server.shutdown"
     }
   },
   "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
