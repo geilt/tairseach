@@ -1,0 +1,144 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "google-calendar",
+  "name": "Google Calendar",
+  "description": "Google Calendar API operations for managing calendars and events.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "tools": [
+    {
+      "name": "gcalendar.listCalendars",
+      "description": "List all Google calendars.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcalendar.listEvents",
+      "description": "List events from a Google calendar.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "calendarId": {"type": "string"},
+          "timeMin": {"type": "string"},
+          "timeMax": {"type": "string"},
+          "maxResults": {"type": "integer"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcalendar.getEvent",
+      "description": "Get a specific calendar event by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["calendarId", "eventId"],
+        "properties": {
+          "calendarId": {"type": "string"},
+          "eventId": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcalendar.createEvent",
+      "description": "Create a new calendar event.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["calendarId", "summary"],
+        "properties": {
+          "calendarId": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "start": {"type": "object"},
+          "end": {"type": "object"},
+          "location": {"type": "string"},
+          "attendees": {"type": "array"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcalendar.updateEvent",
+      "description": "Update an existing calendar event.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["calendarId", "eventId"],
+        "properties": {
+          "calendarId": {"type": "string"},
+          "eventId": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "start": {"type": "object"},
+          "end": {"type": "object"},
+          "location": {"type": "string"},
+          "attendees": {"type": "array"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcalendar.deleteEvent",
+      "description": "Delete a calendar event.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["calendarId", "eventId"],
+        "properties": {
+          "calendarId": {"type": "string"},
+          "eventId": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.google_calendar",
+    "methods": {
+      "gcalendar.listCalendars": "listCalendars",
+      "gcalendar.listEvents": "listEvents",
+      "gcalendar.getEvent": "getEvent",
+      "gcalendar.createEvent": "createEvent",
+      "gcalendar.updateEvent": "updateEvent",
+      "gcalendar.deleteEvent": "deleteEvent"
+    }
+  },
+  "requires": {
+    "credentials": {
+      "type": "oauth",
+      "provider": "google",
+      "scopes": [
+        "https://www.googleapis.com/auth/calendar"
+      ]
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

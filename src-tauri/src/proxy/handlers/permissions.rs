@@ -94,7 +94,7 @@ async fn handle_request(params: &Value, id: Value) -> JsonRpcResponse {
     
     // Call the permission request function from crate::permissions
     // This triggers the macOS permission dialog and/or opens System Settings
-    match crate::permissions::request_permission(permission) {
+    match crate::permissions::permissions_single_request(permission) {
         Ok(_) => ok(
             id,
             serde_json::json!({

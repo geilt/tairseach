@@ -1,0 +1,132 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "google-contacts",
+  "name": "Google Contacts",
+  "description": "Google Contacts API operations for managing contacts.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "tools": [
+    {
+      "name": "gcontacts.list",
+      "description": "List all Google contacts.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.search",
+      "description": "Search Google contacts by query string.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.get",
+      "description": "Get a specific Google contact by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.create",
+      "description": "Create a new Google contact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "givenName": {"type": "string"},
+          "familyName": {"type": "string"},
+          "emailAddresses": {"type": "array"},
+          "phoneNumbers": {"type": "array"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcontacts.update",
+      "description": "Update an existing Google contact.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "givenName": {"type": "string"},
+          "familyName": {"type": "string"},
+          "emailAddresses": {"type": "array"},
+          "phoneNumbers": {"type": "array"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcontacts.delete",
+      "description": "Delete a Google contact.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.google_contacts",
+    "methods": {
+      "gcontacts.list": "list",
+      "gcontacts.search": "search",
+      "gcontacts.get": "get",
+      "gcontacts.create": "create",
+      "gcontacts.update": "update",
+      "gcontacts.delete": "delete"
+    }
+  },
+  "requires": {
+    "credentials": {
+      "type": "oauth",
+      "provider": "google",
+      "scopes": [
+        "https://www.googleapis.com/auth/contacts"
+      ]
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

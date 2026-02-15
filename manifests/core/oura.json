@@ -1,0 +1,94 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "oura",
+  "name": "Oura",
+  "description": "Oura Ring API integration for health and activity data.",
+  "version": "0.1.0",
+  "category": "health",
+  "tools": [
+    {
+      "name": "oura.sleep",
+      "description": "Get Oura sleep data for a date range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {"type": "string"},
+          "endDate": {"type": "string"},
+          "credType": {"type": "string", "default": "oura"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.activity",
+      "description": "Get Oura activity data for a date range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {"type": "string"},
+          "endDate": {"type": "string"},
+          "credType": {"type": "string", "default": "oura"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.readiness",
+      "description": "Get Oura readiness data for a date range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {"type": "string"},
+          "endDate": {"type": "string"},
+          "credType": {"type": "string", "default": "oura"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.heartRate",
+      "description": "Get Oura heart rate data for a date range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "startDate": {"type": "string"},
+          "endDate": {"type": "string"},
+          "credType": {"type": "string", "default": "oura"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.oura",
+    "methods": {
+      "oura.sleep": "sleep",
+      "oura.activity": "activity",
+      "oura.readiness": "readiness",
+      "oura.heartRate": "heartRate"
+    }
+  },
+  "requires": {
+    "credentials": {
+      "type": "custom",
+      "credType": "oura"
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

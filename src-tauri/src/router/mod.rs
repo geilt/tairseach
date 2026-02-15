@@ -130,7 +130,7 @@ impl CapabilityRouter {
     async fn check_permission(&self, permission: &str, id: &Value) -> Result<(), JsonRpcResponse> {
         use crate::permissions;
 
-        let perm = permissions::check_permission(permission)
+        let perm = permissions::permissions_single_check(permission)
             .map_err(|e| JsonRpcResponse::error(id.clone(), -32000, e, None))?;
 
         if perm.status != permissions::PermissionStatus::Granted {

@@ -121,7 +121,7 @@ pub struct ExecApprovals {
 }
 
 #[tauri::command]
-pub async fn get_config() -> Result<OpenClawConfig, String> {
+pub async fn config_app_get() -> Result<OpenClawConfig, String> {
     let config_path = get_openclaw_config_path();
     
     if !config_path.exists() {
@@ -137,14 +137,14 @@ pub async fn get_config() -> Result<OpenClawConfig, String> {
 }
 
 #[tauri::command]
-pub async fn set_config(config: Value) -> Result<(), String> {
+pub async fn config_app_set(config: Value) -> Result<(), String> {
     let config_path = get_openclaw_config_path();
     write_json_file_with_backup(&config_path, &config, "config")
 }
 
 /// Get available models for known providers
 #[tauri::command]
-pub async fn get_provider_models() -> Result<Value, String> {
+pub async fn config_models_list() -> Result<Value, String> {
     // Return known models for common providers
     Ok(serde_json::json!({
         "anthropic": [
@@ -172,7 +172,7 @@ pub async fn get_provider_models() -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn get_google_oauth_config() -> Result<Option<GoogleOAuthConfig>, String> {
+pub async fn config_google_oauth_get() -> Result<Option<GoogleOAuthConfig>, String> {
     let path = get_google_oauth_config_path();
     if !path.exists() {
         return Ok(None);
@@ -183,7 +183,7 @@ pub async fn get_google_oauth_config() -> Result<Option<GoogleOAuthConfig>, Stri
 }
 
 #[tauri::command]
-pub async fn save_google_oauth_config(client_id: String, client_secret: String) -> Result<(), String> {
+pub async fn config_google_oauth_save(client_id: String, client_secret: String) -> Result<(), String> {
     if client_id.trim().is_empty() || client_secret.trim().is_empty() {
         return Err("Client ID and Client Secret are required".to_string());
     }
@@ -199,7 +199,7 @@ pub async fn save_google_oauth_config(client_id: String, client_secret: String) 
 }
 
 #[tauri::command]
-pub async fn test_google_oauth_config(client_id: String, client_secret: String) -> Result<Value, String> {
+pub async fn config_google_oauth_test(client_id: String, client_secret: String) -> Result<Value, String> {
     if client_id.trim().is_empty() || client_secret.trim().is_empty() {
         return Err("Client ID and Client Secret are required".to_string());
     }
@@ -243,8 +243,8 @@ pub async fn test_google_oauth_config(client_id: String, client_secret: String) 
 }
 
 #[tauri::command]
-pub async fn get_google_oauth_status() -> Result<GoogleOAuthStatus, String> {
-    let config = get_google_oauth_config().await?;
+pub async fn config_google_oauth_status_get() -> Result<GoogleOAuthStatus, String> {
+    let config = config_google_oauth_get().await?;
     if config.is_none() {
         return Ok(GoogleOAuthStatus {
             status: "not_configured".to_string(),
@@ -303,7 +303,7 @@ pub async fn get_google_oauth_status() -> Result<GoogleOAuthStatus, String> {
 }
 
 #[tauri::command]
-pub async fn get_environment() -> Result<EnvironmentInfo, String> {
+pub async fn config_environment_get() -> Result<EnvironmentInfo, String> {
     let gateway_path = get_openclaw_config_path();
     let node_path = get_node_config_path();
     let exec_approvals_path = get_exec_approvals_path();
@@ -346,7 +346,7 @@ pub async fn get_environment() -> Result<EnvironmentInfo, String> {
 }
 
 #[tauri::command]
-pub async fn get_node_config() -> Result<NodeConfig, String> {
+pub async fn config_node_get() -> Result<NodeConfig, String> {
     let node_path = get_node_config_path();
     
     if !node_path.exists() {
@@ -362,13 +362,13 @@ pub async fn get_node_config() -> Result<NodeConfig, String> {
 }
 
 #[tauri::command]
-pub async fn set_node_config(config: Value) -> Result<(), String> {
+pub async fn config_node_set(config: Value) -> Result<(), String> {
     let node_path = get_node_config_path();
     write_json_file_with_backup(&node_path, &config, "node config")
 }
 
 #[tauri::command]
-pub async fn get_exec_approvals() -> Result<ExecApprovals, String> {
+pub async fn config_exec_approvals_get() -> Result<ExecApprovals, String> {
     let approvals_path = get_exec_approvals_path();
     
     let approvals: Value = if approvals_path.exists() {
@@ -384,7 +384,7 @@ pub async fn get_exec_approvals() -> Result<ExecApprovals, String> {
 }
 
 #[tauri::command]
-pub async fn set_exec_approvals(approvals: Value) -> Result<(), String> {
+pub async fn config_exec_approvals_set(approvals: Value) -> Result<(), String> {
     let approvals_path = get_exec_approvals_path();
     write_json_file_with_backup(&approvals_path, &approvals, "exec approvals")
 }

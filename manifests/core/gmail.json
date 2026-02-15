@@ -1,0 +1,184 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "gmail",
+  "name": "Gmail",
+  "description": "Gmail API operations for reading, sending, and managing emails.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "tools": [
+    {
+      "name": "gmail.listMessages",
+      "description": "List Gmail messages with optional query and label filters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "maxResults": {"type": "integer"},
+          "labelIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["messages", "count"],
+        "properties": {
+          "messages": {"type": "array"},
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.getMessage",
+      "description": "Get a specific Gmail message by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "format": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.send",
+      "description": "Send an email via Gmail.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["to", "subject", "body"],
+        "properties": {
+          "to": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}}
+            ]
+          },
+          "subject": {"type": "string"},
+          "body": {"type": "string"},
+          "cc": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}}
+            ]
+          },
+          "bcc": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}}
+            ]
+          },
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gmail.listLabels",
+      "description": "List all Gmail labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.modifyMessage",
+      "description": "Modify labels on a Gmail message.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "addLabelIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "removeLabelIds": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gmail.trashMessage",
+      "description": "Move a Gmail message to trash.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    },
+    {
+      "name": "gmail.deleteMessage",
+      "description": "Permanently delete a Gmail message.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string"},
+          "provider": {"type": "string", "default": "google"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.gmail",
+    "methods": {
+      "gmail.listMessages": "listMessages",
+      "gmail.getMessage": "getMessage",
+      "gmail.send": "send",
+      "gmail.listLabels": "listLabels",
+      "gmail.modifyMessage": "modifyMessage",
+      "gmail.trashMessage": "trashMessage",
+      "gmail.deleteMessage": "deleteMessage"
+    }
+  },
+  "requires": {
+    "credentials": {
+      "type": "oauth",
+      "provider": "google",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.settings.basic"
+      ]
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}

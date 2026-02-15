@@ -14,13 +14,13 @@ pub struct Profile {
 }
 
 #[tauri::command]
-pub async fn get_profiles() -> Result<Vec<Profile>, String> {
+pub async fn profiles_all_list() -> Result<Vec<Profile>, String> {
     // TODO: Load profiles from storage
     Ok(vec![])
 }
 
 #[tauri::command]
-pub async fn save_profile(profile: Profile) -> Result<Profile, String> {
+pub async fn profiles_single_save(profile: Profile) -> Result<Profile, String> {
     // TODO: Save profile to storage
     Ok(profile)
 }

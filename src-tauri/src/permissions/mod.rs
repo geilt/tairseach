@@ -237,7 +237,7 @@ pub(crate) fn signal_callback(pair: &CallbackPair) {
 
 /// Check the status of a specific permission
 #[tauri::command]
-pub fn check_permission(permission_id: &str) -> Result<Permission, String> {
+pub fn permissions_single_check(permission_id: &str) -> Result<Permission, String> {
     let result: Result<Permission, PermissionError> = match permission_id {
         ids::CONTACTS => contacts::check(),
         ids::AUTOMATION => automation::check(),
@@ -275,31 +275,31 @@ pub fn check_all_permissions() -> Vec<Permission> {
 
     permission_ids
         .iter()
-        .filter_map(|id| check_permission(id).ok())
+        .filter_map(|id| permissions_single_check(id).ok())
         .collect()
 }
 
 /// Get all permissions (legacy API - wraps check_all_permissions)
 #[tauri::command]
-pub async fn get_permissions() -> Result<Vec<Permission>, String> {
+pub async fn permissions_all_get() -> Result<Vec<Permission>, String> {
     Ok(check_all_permissions())
 }
 
 /// Grant permission (legacy API - not possible on macOS)
 #[tauri::command]
-pub async fn grant_permission(_tool: String, _scope: String) -> Result<Permission, String> {
+pub async fn permissions_single_grant(_tool: String, _scope: String) -> Result<Permission, String> {
     Err("Use request_permission to open System Preferences. macOS does not allow programmatic granting.".to_string())
 }
 
 /// Revoke permission (legacy API - not possible on macOS)
 #[tauri::command]
-pub async fn revoke_permission(_id: String) -> Result<(), String> {
+pub async fn permissions_single_revoke(_id: String) -> Result<(), String> {
     Err("Use System Preferences to manage permissions. macOS does not allow programmatic revocation.".to_string())
 }
 
 /// Request a permission by triggering the native prompt and/or opening System Preferences
 #[tauri::command]
-pub fn request_permission(permission_id: &str) -> Result<(), String> {
+pub fn permissions_single_request(permission_id: &str) -> Result<(), String> {
     // Try to trigger the native permission prompt first
     tracing::info!("Requesting permission: {}", permission_id);
     
@@ -333,7 +333,7 @@ pub fn request_permission(permission_id: &str) -> Result<(), String> {
 
 /// Trigger permission registration (makes app appear in System Preferences)
 #[tauri::command]
-pub fn trigger_permission_registration(permission_id: &str) -> Result<String, String> {
+pub fn permissions_registration_trigger(permission_id: &str) -> Result<String, String> {
     let result = match permission_id {
         ids::CONTACTS => contacts::trigger_registration(),
         ids::CALENDAR => calendar::trigger_registration(),
@@ -365,13 +365,13 @@ pub fn trigger_permission_registration(permission_id: &str) -> Result<String, St
 
 /// Open System Preferences to a specific privacy pane
 #[tauri::command]
-pub fn open_permission_settings(pane: &str) -> Result<(), String> {
+pub fn permissions_settings_open(pane: &str) -> Result<(), String> {
     open_system_preferences_internal(pane)
 }
 
 /// Get all permission definitions with metadata
 #[tauri::command]
-pub fn get_permission_definitions() -> Vec<PermissionDefinition> {
+pub fn permissions_definitions_get() -> Vec<PermissionDefinition> {
     vec![
         PermissionDefinition {
             id: ids::CONTACTS.to_string(),

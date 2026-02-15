@@ -1,0 +1,86 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "photos",
+  "name": "Photos",
+  "description": "macOS Photos app integration for accessing photo library.",
+  "version": "0.1.0",
+  "category": "media",
+  "tools": [
+    {
+      "name": "photos.albums",
+      "description": "List all photo albums.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "includeShared": {"type": "boolean", "default": false}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.list",
+      "description": "List photos from the library or an album.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "albumId": {"type": "string"},
+          "limit": {"type": "integer"},
+          "offset": {"type": "integer"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.get",
+      "description": "Get a specific photo by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["photoId"],
+        "properties": {
+          "photoId": {"type": "string"},
+          "exportPath": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.search",
+      "description": "Search photos by text query or metadata.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "startDate": {"type": "string"},
+          "endDate": {"type": "string"},
+          "limit": {"type": "integer"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.photos",
+    "methods": {
+      "photos.albums": "albums",
+      "photos.list": "list",
+      "photos.get": "get",
+      "photos.search": "search"
+    }
+  },
+  "requires": {
+    "permissions": ["photos"]
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos"]
+  }
+}

@@ -528,7 +528,7 @@ pub struct AuthState {
 }
 
 #[tauri::command]
-pub async fn authenticate(
+pub async fn auth_session_create(
     method: String,
     _credential: Option<String>,
 ) -> Result<AuthState, String> {
@@ -540,7 +540,7 @@ pub async fn authenticate(
 }
 
 #[tauri::command]
-pub async fn check_auth() -> Result<AuthState, String> {
+pub async fn auth_session_check() -> Result<AuthState, String> {
     Ok(AuthState {
         authenticated: false,
         method: "none".to_string(),
@@ -549,19 +549,19 @@ pub async fn check_auth() -> Result<AuthState, String> {
 }
 
 #[tauri::command]
-pub async fn auth_status() -> Result<AuthStatus, String> {
+pub async fn auth_status_get() -> Result<AuthStatus, String> {
     let broker = get_or_init_broker().await?;
     Ok(broker.status().await)
 }
 
 #[tauri::command]
-pub async fn auth_providers() -> Result<Vec<String>, String> {
+pub async fn auth_providers_list() -> Result<Vec<String>, String> {
     let broker = get_or_init_broker().await?;
     Ok(broker.list_providers())
 }
 
 #[tauri::command]
-pub async fn auth_accounts(provider: Option<String>) -> Result<Vec<AccountInfo>, String> {
+pub async fn auth_accounts_list(provider: Option<String>) -> Result<Vec<AccountInfo>, String> {
     let broker = get_or_init_broker().await?;
     Ok(broker.list_accounts(provider.as_deref()).await)
 }
@@ -643,7 +643,7 @@ pub async fn auth_start_google_oauth(_app: tauri::AppHandle) -> Result<serde_jso
     let state = generate_state();
     
     // Load credentials from saved Google OAuth config, fall back to defaults
-    let provider = match crate::config::get_google_oauth_config().await {
+    let provider = match crate::config::config_google_oauth_get().await {
         Ok(Some(config)) if !config.client_id.is_empty() => {
             info!("Using saved Google OAuth credentials");
             GoogleProvider::with_credentials(config.client_id, config.client_secret)
@@ -892,7 +892,7 @@ async fn fetch_google_email(access_token: &str) -> Result<String, String> {
 // ── Credential Commands ─────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn auth_credential_types() -> Result<Vec<credential_types::CredentialTypeSchema>, String> {
+pub async fn auth_credential_types_list() -> Result<Vec<credential_types::CredentialTypeSchema>, String> {
     let broker = get_or_init_broker().await?;
     Ok(broker.list_credential_types().await)
 }
@@ -1040,7 +1040,7 @@ pub async fn op_vaults_list() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn op_config_set_default_vault(vault_id: String) -> Result<(), String> {
+pub async fn op_config_default_vault_set(vault_id: String) -> Result<(), String> {
     crate::config::save_onepassword_config(Some(vault_id)).await
 }
 

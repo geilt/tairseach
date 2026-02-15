@@ -1,0 +1,150 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "jira",
+  "name": "Jira",
+  "description": "Jira API operations for managing issues, projects, and sprints.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "tools": [
+    {
+      "name": "jira.issues.search",
+      "description": "Search for Jira issues using JQL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jql": {"type": "string"},
+          "maxResults": {"type": "integer"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "jira.issues.get",
+      "description": "Get a specific Jira issue by key.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["issueKey"],
+        "properties": {
+          "issueKey": {"type": "string"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "jira.issues.create",
+      "description": "Create a new Jira issue.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["project", "summary", "issueType"],
+        "properties": {
+          "project": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "issueType": {"type": "string"},
+          "assignee": {"type": "string"},
+          "priority": {"type": "string"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "jira.issues.update",
+      "description": "Update an existing Jira issue.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["issueKey"],
+        "properties": {
+          "issueKey": {"type": "string"},
+          "summary": {"type": "string"},
+          "description": {"type": "string"},
+          "assignee": {"type": "string"},
+          "priority": {"type": "string"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "jira.issues.transition",
+      "description": "Transition a Jira issue to a new status.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["issueKey", "transitionId"],
+        "properties": {
+          "issueKey": {"type": "string"},
+          "transitionId": {"type": "string"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "jira.projects.list",
+      "description": "List all Jira projects.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "jira.sprints.list",
+      "description": "List sprints for a Jira board.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["boardId"],
+        "properties": {
+          "boardId": {"type": "string"},
+          "credType": {"type": "string", "default": "jira"},
+          "label": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.jira",
+    "methods": {
+      "jira.issues.search": "issues.search",
+      "jira.issues.get": "issues.get",
+      "jira.issues.create": "issues.create",
+      "jira.issues.update": "issues.update",
+      "jira.issues.transition": "issues.transition",
+      "jira.projects.list": "projects.list",
+      "jira.sprints.list": "sprints.list"
+    }
+  },
+  "requires": {
+    "credentials": {
+      "type": "custom",
+      "credType": "jira"
+    }
+  },
+  "compatibility": {
+    "mcpProtocol": "2025-03-26",
+    "os": ["macos", "linux", "windows"]
+  }
+}
