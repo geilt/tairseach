@@ -943,6 +943,29 @@ pub async fn auth_credentials_delete(credType: String, label: String) -> Result<
 }
 
 #[tauri::command]
+#[allow(non_snake_case)]
+pub async fn auth_credentials_rename(
+    credType: String,
+    oldLabel: String,
+    newLabel: String,
+) -> Result<serde_json::Value, String> {
+    let broker = get_or_init_broker().await?;
+    
+    // Get the existing credential
+    let fields = broker.get_credential(&credType, Some(&oldLabel)).await?;
+    
+    // Store with new label
+    broker
+        .store_credential(&credType, &newLabel, &credType, fields, Some(&newLabel))
+        .await?;
+    
+    // Delete old label
+    broker.delete_credential(&credType, &oldLabel).await?;
+    
+    Ok(serde_json::json!({ "success": true, "label": newLabel }))
+}
+
+#[tauri::command]
 pub async fn auth_credential_types_custom_create(
     provider_type: String,
     display_name: String,

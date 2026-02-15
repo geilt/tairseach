@@ -125,15 +125,49 @@ impl JsonRpcResponse {
         Self::error(id, -32603, message, None)
     }
     
-    /// Create a permission denied error
+    /// Create a permission denied error with remediation guidance
     pub fn permission_denied(id: Value, permission: &str, status: &str) -> Self {
+        let remediation = match status {
+            "not_determined" => {
+                format!(
+                    "Permission can be requested. Call permissions.request with permission='{}'",
+                    permission
+                )
+            }
+            "denied" => {
+                let pane = match permission {
+                    "contacts" => "Contacts",
+                    "calendar" => "Calendars",
+                    "reminders" => "Reminders",
+                    "location" => "Location Services",
+                    "photos" => "Photos",
+                    "camera" => "Camera",
+                    "microphone" => "Microphone",
+                    "screen_recording" => "Screen Recording",
+                    "accessibility" => "Accessibility",
+                    "full_disk_access" => "Full Disk Access",
+                    "automation" => "Automation",
+                    _ => "Privacy & Security",
+                };
+                format!(
+                    "User must grant permission manually in System Settings > Privacy & Security > {}",
+                    pane
+                )
+            }
+            "restricted" => {
+                "Permission is restricted by system policy and cannot be granted".to_string()
+            }
+            _ => "Permission status unknown. Check System Settings > Privacy & Security".to_string(),
+        };
+
         Self::error(
             id,
             -32001,
             "Permission not granted",
             Some(serde_json::json!({
                 "permission": permission,
-                "status": status
+                "status": status,
+                "remediation": remediation
             })),
         )
     }

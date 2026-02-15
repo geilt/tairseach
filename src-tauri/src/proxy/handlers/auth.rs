@@ -43,6 +43,7 @@ pub async fn handle(action: &str, params: &Value, id: Value) -> JsonRpcResponse 
         "credentials.get" => handle_get_credential(params, id).await,
         "credentials.list" => handle_list_credentials(params, id).await,
         "credentials.delete" => handle_delete_credential(params, id).await,
+        "credentials.rename" => handle_rename_credential(params, id).await,
         _ => method_not_found(id, &format!("auth.{}", action)),
     }
 }
@@ -408,6 +409,56 @@ async fn handle_delete_credential(params: &Value, id: Value) -> JsonRpcResponse 
 
     match broker.delete_credential(provider, account).await {
         Ok(()) => ok(id, serde_json::json!({ "success": true })),
+        Err(e) => generic_error(id, e),
+    }
+}
+
+/// `auth.credentials.rename` — rename a credential
+async fn handle_rename_credential(params: &Value, id: Value) -> JsonRpcResponse {
+    let broker = match get_broker().await {
+        Ok(b) => b,
+        Err(mut resp) => {
+            resp.id = id;
+            return resp;
+        }
+    };
+
+    let cred_type = match require_string(params, "credType", &id) {
+        Ok(t) => t,
+        Err(response) => return response,
+    };
+
+    let old_label = match require_string(params, "oldLabel", &id) {
+        Ok(l) => l,
+        Err(response) => return response,
+    };
+
+    let new_label = match require_string(params, "newLabel", &id) {
+        Ok(l) => l,
+        Err(response) => return response,
+    };
+
+    // Get the existing credential
+    let fields = match broker.get_credential(&cred_type, Some(&old_label)).await {
+        Ok(f) => f,
+        Err(e) => return generic_error(id, e),
+    };
+
+    // Store with new label
+    match broker
+        .store_credential(&cred_type, &new_label, &cred_type, fields, Some(&new_label))
+        .await
+    {
+        Ok(()) => {
+            // Delete old label
+            match broker.delete_credential(&cred_type, &old_label).await {
+                Ok(()) => ok(
+                    id,
+                    serde_json::json!({ "success": true, "label": new_label }),
+                ),
+                Err(e) => generic_error(id, e),
+            }
+        }
         Err(e) => generic_error(id, e),
     }
 }

@@ -167,6 +167,7 @@ async fn handle_delete_reminder(params: &Value, id: Value) -> JsonRpcResponse {
 #[cfg(target_os = "macos")]
 async fn fetch_reminder_lists() -> Vec<ReminderList> {
     use std::process::Command;
+    use tokio::time::{timeout, Duration};
     
     info!("Fetching reminder lists via JXA");
     
@@ -189,12 +190,26 @@ async fn fetch_reminder_lists() -> Vec<ReminderList> {
         JSON.stringify(result);
     "#;
     
-    let output = Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
-        .arg("-e")
-        .arg(script)
-        .output();
+    let output_future = tokio::task::spawn_blocking(move || {
+        Command::new("osascript")
+            .arg("-l")
+            .arg("JavaScript")
+            .arg("-e")
+            .arg(script)
+            .output()
+    });
+    
+    let output = match timeout(Duration::from_secs(10), output_future).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            error!("Failed to execute osascript: {}", e);
+            return Vec::new();
+        }
+        Err(_) => {
+            error!("JXA reminder lists fetch timed out after 10 seconds");
+            return Vec::new();
+        }
+    };
     
     match output {
         Ok(out) => {
@@ -217,6 +232,7 @@ async fn fetch_reminder_lists() -> Vec<ReminderList> {
 #[cfg(target_os = "macos")]
 async fn fetch_reminders(list_id: Option<&str>, include_completed: bool) -> Vec<Reminder> {
     use std::process::Command;
+    use tokio::time::{timeout, Duration};
     
     info!("Fetching reminders via JXA: list_id={:?}, include_completed={}", list_id, include_completed);
     
@@ -296,12 +312,26 @@ async fn fetch_reminders(list_id: Option<&str>, include_completed: bool) -> Vec<
         include_completed = if include_completed { "true" } else { "false" }
     );
     
-    let output = Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
-        .arg("-e")
-        .arg(&script)
-        .output();
+    let output_future = tokio::task::spawn_blocking(move || {
+        Command::new("osascript")
+            .arg("-l")
+            .arg("JavaScript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+    });
+    
+    let output = match timeout(Duration::from_secs(15), output_future).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            error!("Failed to execute osascript: {}", e);
+            return Vec::new();
+        }
+        Err(_) => {
+            error!("JXA reminders fetch timed out after 15 seconds");
+            return Vec::new();
+        }
+    };
     
     match output {
         Ok(out) => {
@@ -339,6 +369,7 @@ async fn create_reminder(
     priority: i32,
 ) -> Option<Reminder> {
     use std::process::Command;
+    use tokio::time::{timeout, Duration};
     
     info!("Creating reminder via JXA: {}", title);
     
@@ -426,12 +457,26 @@ async fn create_reminder(
             .unwrap_or_default(),
     );
     
-    let output = Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
-        .arg("-e")
-        .arg(&script)
-        .output();
+    let output_future = tokio::task::spawn_blocking(move || {
+        Command::new("osascript")
+            .arg("-l")
+            .arg("JavaScript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+    });
+    
+    let output = match timeout(Duration::from_secs(10), output_future).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            error!("Failed to execute osascript: {}", e);
+            return None;
+        }
+        Err(_) => {
+            error!("JXA reminder create timed out after 10 seconds");
+            return None;
+        }
+    };
     
     match output {
         Ok(out) => {
@@ -459,6 +504,7 @@ async fn create_reminder(
 #[cfg(target_os = "macos")]
 async fn set_reminder_completed(reminder_id: &str, completed: bool) -> bool {
     use std::process::Command;
+    use tokio::time::{timeout, Duration};
     
     info!("Setting reminder {} completed={}", reminder_id, completed);
     
@@ -482,12 +528,26 @@ async fn set_reminder_completed(reminder_id: &str, completed: bool) -> bool {
         completed = if completed { "true" } else { "false" }
     );
     
-    let output = Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
-        .arg("-e")
-        .arg(&script)
-        .output();
+    let output_future = tokio::task::spawn_blocking(move || {
+        Command::new("osascript")
+            .arg("-l")
+            .arg("JavaScript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+    });
+    
+    let output = match timeout(Duration::from_secs(10), output_future).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            error!("Failed to execute osascript: {}", e);
+            return false;
+        }
+        Err(_) => {
+            error!("JXA reminder completion status update timed out after 10 seconds");
+            return false;
+        }
+    };
     
     match output {
         Ok(out) => {
@@ -510,6 +570,7 @@ async fn set_reminder_completed(reminder_id: &str, completed: bool) -> bool {
 #[cfg(target_os = "macos")]
 async fn delete_reminder(reminder_id: &str) -> bool {
     use std::process::Command;
+    use tokio::time::{timeout, Duration};
     
     info!("Deleting reminder {}", reminder_id);
     
@@ -531,12 +592,26 @@ async fn delete_reminder(reminder_id: &str) -> bool {
         reminder_id = reminder_id.replace('\'', "\\'")
     );
     
-    let output = Command::new("osascript")
-        .arg("-l")
-        .arg("JavaScript")
-        .arg("-e")
-        .arg(&script)
-        .output();
+    let output_future = tokio::task::spawn_blocking(move || {
+        Command::new("osascript")
+            .arg("-l")
+            .arg("JavaScript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+    });
+    
+    let output = match timeout(Duration::from_secs(10), output_future).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => {
+            error!("Failed to execute osascript: {}", e);
+            return false;
+        }
+        Err(_) => {
+            error!("JXA reminder delete timed out after 10 seconds");
+            return false;
+        }
+    };
     
     match output {
         Ok(out) => {

@@ -98,6 +98,19 @@ Tairseach.app
 
 **MCP Bridge** — Standalone binary (`tairseach-mcp`) that translates MCP protocol to Tairseach socket calls. Ships with app, configured in OpenClaw `mcpServers`.
 
+### Method Naming Convention (Decision: 2026-02-15)
+
+**Standard: JSON-RPC dot notation everywhere.** All method names use `namespace.action` format (e.g., `auth.status`, `contacts.list`, `gcalendar.listEvents`).
+
+- **Socket callers** use dot notation: `auth.status`
+- **Internal handlers** use dot notation: already the case
+- **Manifest tool names** use dot notation: `auth.status` (not `auth_status`)
+- **MCP bridge** translates to/from MCP underscore convention (`auth_status`) at the boundary — this is the bridge's job, not the app's
+
+**Rationale:** Two competing conventions (MCP underscores vs JSON-RPC dots) caused method-not-found errors when the capability router couldn't match incoming dot-notation calls to underscore-registered manifest tools. One standard eliminates the translation gap.
+
+**Migration:** Rename all `tool.name` fields in `manifests/core/*.json` from underscore to dot notation. Update `implementation.methods` keys to match. MCP bridge handles underscore translation for external MCP clients.
+
 ---
 
 ## Quick References

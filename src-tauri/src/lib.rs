@@ -199,6 +199,7 @@ pub fn run() {
             auth::auth_credentials_list,
             auth::auth_credentials_get,
             auth::auth_credentials_delete,
+            auth::auth_credentials_rename,
             auth::auth_credential_types_custom_create,
             auth::op_vaults_list,
             auth::op_config_set_default_vault,

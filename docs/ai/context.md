@@ -129,7 +129,68 @@ All optimization and refactor branches have been merged into `main`.
 
 ---
 
-## 6. Patterns to Follow
+## 6. Naming Convention (Decision: 2026-02-15)
+
+### Tauri Command Names (Rust ↔ Vue IPC)
+
+**Standard: `{section}_{subject}_{action}`**
+
+Examples:
+- `auth_credentials_list` ✅
+- `auth_credentials_store` ✅
+- `auth_credentials_rename` ✅
+- `permissions_all_check` ✅
+- `config_node_get` ✅
+
+Anti-patterns:
+- `get_config` ❌ (action_subject — backwards)
+- `auth_get_token` ❌ (section_action_subject — mixed)
+- `check_all_permissions` ❌ (action_modifier_subject — no section)
+
+### JSON-RPC Method Names (Socket Protocol)
+
+**Standard: dot notation `namespace.action`**
+
+Examples: `auth.status`, `contacts.list`, `gcalendar.listEvents`
+
+The MCP bridge translates between dot notation (internal) and underscore notation (MCP spec) at the boundary. All other callers use dots.
+
+### Manifest Tool Names
+
+**Standard: dot notation matching JSON-RPC methods**
+
+Manifest `tool.name` fields use the same dot notation as JSON-RPC: `auth.status`, not `auth_status`. The `implementation.methods` mapping keys match these names.
+
+### Error Format (JSONL)
+
+All errors — frontend and backend — use this structured format:
+
+```json
+{"ts":"2026-02-15T09:00:00Z","source":"views/IntegrationsView","severity":"error","code":"auth.credentials.not_found","message":"Command not registered: auth_list_credentials","context":{"command":"auth_list_credentials"},"stack":"optional"}
+```
+
+Fields:
+- `ts` — ISO 8601 timestamp
+- `source` — component/module path (e.g., `views/AuthView`, `handlers/auth`, `api/tairseach`)
+- `severity` — `fatal` | `error` | `warn` | `info`
+- `code` — namespaced error code (e.g., `auth.credentials.not_found`, `permissions.denied`)
+- `message` — human-readable description
+- `context` — relevant params/state as object
+- `stack` — stack trace (optional, for fatal/error)
+
+Frontend errors beacon to Tauri command `error_report` → appends to `~/.tairseach/logs/errors.jsonl`.
+
+### API Layer Rule
+
+**Views NEVER call `invoke()` directly.** All Tauri IPC goes through `src/api/tairseach.ts`. Direct `invoke()` in a view is a bug. The API layer provides:
+- Single source of truth for command names
+- Type safety on params and return values
+- Central error handling via `tryCall()` wrapper
+- Error beacon to backend log
+
+---
+
+## 7. Patterns to Follow
 
 ### DRY (Don't Repeat Yourself) — PRIMARY DIRECTIVE
 
@@ -162,7 +223,7 @@ All optimization and refactor branches have been merged into `main`.
 
 ---
 
-## 7. What NOT to Do (Anti-Patterns)
+## 8. What NOT to Do (Anti-Patterns)
 
 🚫 **Dead MCP Stubs in Handlers**
 - Old handlers had unused `mcp_bridge` imports — these are removed
@@ -196,7 +257,7 @@ All optimization and refactor branches have been merged into `main`.
 
 ---
 
-## 8. Quick Start for Agents
+## 9. Quick Start for Agents
 
 **Working on a handler?** → Read [modules/handlers.md](modules/handlers.md) + [patterns/handler-pattern.md](patterns/handler-pattern.md)
 
@@ -220,7 +281,7 @@ All optimization and refactor branches have been merged into `main`.
 
 ---
 
-## 9. Module Documentation
+## 10. Module Documentation
 
 All modules have detailed docs in `modules/`:
 
@@ -237,7 +298,7 @@ All modules have detailed docs in `modules/`:
 
 ---
 
-## 10. Pattern Templates
+## 11. Pattern Templates
 
 Copy-paste ready templates in `patterns/`:
 
@@ -248,7 +309,7 @@ Copy-paste ready templates in `patterns/`:
 
 ---
 
-## 11. Development Workflow
+## 12. Development Workflow
 
 1. **Create a branch** from `main` with prefix: `feat/`, `fix/`, `refactor/`, `docs/`
 2. **Read relevant module docs** from `modules/` before coding
@@ -270,7 +331,7 @@ cargo run -- --socket ~/.tairseach/socket
 
 ---
 
-## 12. File Structure Reference
+## 13. File Structure Reference
 
 ```
 tairseach/

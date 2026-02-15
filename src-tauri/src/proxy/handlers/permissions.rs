@@ -92,14 +92,17 @@ async fn handle_request(params: &Value, id: Value) -> JsonRpcResponse {
         return invalid_params(id, format!("Unknown permission: {}", permission));
     }
     
-    // TODO: Call the actual permission request functions from crate::permissions
-    // For now, return a placeholder response
-    ok(
-        id,
-        serde_json::json!({
-            "permission": permission,
-            "action": "request_initiated",
-            "message": "Permission request has been initiated. Check app UI for prompt.",
-        }),
-    )
+    // Call the permission request function from crate::permissions
+    // This triggers the macOS permission dialog and/or opens System Settings
+    match crate::permissions::request_permission(permission) {
+        Ok(_) => ok(
+            id,
+            serde_json::json!({
+                "permission": permission,
+                "action": "request_triggered",
+                "message": "Permission dialog triggered. Check for system prompt or Settings opened.",
+            }),
+        ),
+        Err(e) => generic_error(id, format!("Failed to request permission: {}", e)),
+    }
 }
