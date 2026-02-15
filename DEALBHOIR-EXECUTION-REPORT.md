@@ -63,6 +63,16 @@ This keeps all auth-related setup in one place and avoids context-switching to a
 - **Permissions cards**
   - Same visual design; interaction now preserves current scroll location after clicking Request.
 
+
+### 5) Credential relabeling (new)
+- Added inline **Rename** action for each stored credential row in `AuthView.vue`.
+- Clicking rename converts the label display to an inline input with Save/Cancel.
+- Save invokes:
+  - `auth_credentials_rename` with `{ credType, oldLabel, newLabel }`
+- On success, list/status reload and success feedback is shown.
+
+> Backend note: this assumes a Tauri command named `auth_credentials_rename` exists. If missing, wire it on the Rust side and map it to backend method semantics equivalent to `auth.credentials.rename`.
+
 ## Validation / Build
 Executed requested run sequence:
 - Killed prior dev processes (`pkill -f "tauri dev"`, `pkill -f Tairseach`, and conflicting Vite process)

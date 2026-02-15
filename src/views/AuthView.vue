@@ -72,6 +72,9 @@ const loadingCredentials = ref(false)
 const activeForm = ref<string | null>(null)
 const formData = ref<Record<string, any>>({})
 const savingCredential = ref(false)
+const renamingCredential = ref<{ typeId: string; oldLabel: string } | null>(null)
+const renameLabel = ref('')
+const savingRename = ref(false)
 
 // 1Password specific
 const vaults = ref<Vault[]>([])
@@ -287,6 +290,47 @@ async function deleteCredential(typeId: string, label: string) {
     requestAnimationFrame(() => {
       setFeedback('error', `Failed to delete: ${e}`)
     })
+  }
+}
+
+function beginRenameCredential(typeId: string, oldLabel: string) {
+  renamingCredential.value = { typeId, oldLabel }
+  renameLabel.value = oldLabel
+}
+
+function cancelRenameCredential() {
+  renamingCredential.value = null
+  renameLabel.value = ''
+}
+
+async function saveRenameCredential(typeId: string, oldLabel: string) {
+  const newLabel = renameLabel.value.trim()
+  if (!newLabel) {
+    setFeedback('error', 'New label is required')
+    return
+  }
+  if (newLabel === oldLabel) {
+    cancelRenameCredential()
+    return
+  }
+
+  savingRename.value = true
+  try {
+    await invoke('auth_credentials_rename', {
+      credType: typeId,
+      oldLabel,
+      newLabel,
+    })
+
+    setFeedback('success', `Renamed "${oldLabel}" → "${newLabel}"`)
+    cancelRenameCredential()
+    await loadAllCredentials()
+    await store.loadAccounts({ silent: true })
+    await store.loadStatus({ silent: true })
+  } catch (e) {
+    setFeedback('error', `Failed to rename: ${e}`)
+  } finally {
+    savingRename.value = false
   }
 }
 
@@ -841,20 +885,59 @@ function setFeedback(type: 'success' | 'error', text: string) {
             <div 
               v-for="cred in credentialsByType[credType.type]" 
               :key="cred.label"
-              class="px-4 py-3 flex items-center justify-between hover:bg-naonur-fog/5"
+              class="px-4 py-3 hover:bg-naonur-fog/5"
             >
-              <div>
-                <p class="text-sm font-medium text-naonur-bone">{{ cred.label }}</p>
-                <p class="text-xs text-naonur-smoke">
-                  {{ cred.created_at ? `Added ${new Date(cred.created_at).toLocaleDateString()}` : 'No date' }}
-                </p>
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <template v-if="renamingCredential?.typeId === credType.type && renamingCredential?.oldLabel === cred.label">
+                    <div class="flex items-center gap-2">
+                      <input
+                        v-model="renameLabel"
+                        type="text"
+                        class="input-field text-sm"
+                        placeholder="Credential label"
+                        :disabled="savingRename"
+                        @keyup.enter="saveRenameCredential(credType.type, cred.label)"
+                      />
+                      <button
+                        class="btn btn-ghost text-xs text-naonur-moss"
+                        :disabled="savingRename"
+                        @click="saveRenameCredential(credType.type, cred.label)"
+                      >
+                        {{ savingRename ? 'Saving…' : 'Save' }}
+                      </button>
+                      <button
+                        class="btn btn-ghost text-xs"
+                        :disabled="savingRename"
+                        @click="cancelRenameCredential"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <p class="text-sm font-medium text-naonur-bone truncate">{{ cred.label }}</p>
+                    <p class="text-xs text-naonur-smoke">
+                      {{ cred.created_at ? `Added ${new Date(cred.created_at).toLocaleDateString()}` : 'No date' }}
+                    </p>
+                  </template>
+                </div>
+
+                <div v-if="!(renamingCredential?.typeId === credType.type && renamingCredential?.oldLabel === cred.label)" class="flex items-center gap-2">
+                  <button
+                    class="btn btn-ghost text-xs"
+                    @click="beginRenameCredential(credType.type, cred.label)"
+                  >
+                    ✏️ Rename
+                  </button>
+                  <button
+                    class="btn btn-ghost text-xs text-naonur-blood hover:text-naonur-blood/80"
+                    @click="deleteCredential(credType.type, cred.label)"
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
               </div>
-              <button
-                class="btn btn-ghost text-xs text-naonur-blood hover:text-naonur-blood/80"
-                @click="deleteCredential(credType.type, cred.label)"
-              >
-                🗑️ Delete
-              </button>
             </div>
           </div>
 
