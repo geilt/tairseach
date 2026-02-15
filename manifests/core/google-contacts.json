@@ -1,0 +1,121 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "google-contacts",
+  "name": "Google Contacts",
+  "description": "Google Contacts (People API) integration. Currently stubbed — use 'contacts' namespace for native macOS Contacts.",
+  "version": "0.1.0",
+  "category": "productivity",
+  "requires": {
+    "credentials": [{
+      "id": "google_oauth",
+      "provider": "google",
+      "kind": "oauth2",
+      "scopes": ["https://www.googleapis.com/auth/contacts"]
+    }]
+  },
+  "tools": [
+    {
+      "name": "gcontacts.list",
+      "description": "List Google contacts (not yet implemented — use 'contacts.list' for macOS Contacts).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.search",
+      "description": "Search Google contacts (not yet implemented).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "query": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.get",
+      "description": "Get a Google contact by ID (not yet implemented).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gcontacts.create",
+      "description": "Create a Google contact (not yet implemented).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcontacts.update",
+      "description": "Update a Google contact (not yet implemented).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"}
+        },
+        "additionalProperties": true
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gcontacts.delete",
+      "description": "Delete a Google contact (not yet implemented).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.google_contacts",
+    "methods": {
+      "gcontacts.list": "gcontacts.list",
+      "gcontacts.search": "gcontacts.search",
+      "gcontacts.get": "gcontacts.get",
+      "gcontacts.create": "gcontacts.create",
+      "gcontacts.update": "gcontacts.update",
+      "gcontacts.delete": "gcontacts.delete"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

@@ -1,0 +1,106 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "camera",
+  "name": "Camera",
+  "description": "Camera and microphone device access via AVFoundation.",
+  "version": "0.1.0",
+  "category": "system",
+  "requires": {
+    "permissions": [{"name": "camera"}]
+  },
+  "tools": [
+    {
+      "name": "camera.list",
+      "description": "List available camera and microphone devices.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["all", "camera", "video", "microphone", "audio"],
+            "description": "Device type filter. Default: 'all'."
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["devices", "count"],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uniqueId": {"type": "string"},
+                "localizedName": {"type": "string"},
+                "modelId": {"type": "string"},
+                "deviceType": {"type": "string"},
+                "isConnected": {"type": "boolean"},
+                "hasAudio": {"type": "boolean"}
+              }
+            }
+          },
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "camera.snap",
+      "description": "Capture a photo from the camera.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deviceId": {"type": "string", "description": "Camera device ID. Default: system default camera."},
+          "format": {"type": "string", "enum": ["jpg", "jpeg", "png"], "description": "Image format. Default: 'jpg'."},
+          "path": {"type": "string", "description": "Save path. Default: temp file."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "width": {"type": "integer"},
+          "height": {"type": "integer"},
+          "fileSize": {"type": "integer"},
+          "format": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "camera.capture",
+      "description": "Alias for camera.snap — capture a photo from the camera.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "deviceId": {"type": "string"},
+          "format": {"type": "string", "enum": ["jpg", "jpeg", "png"]},
+          "path": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {"type": "string"},
+          "width": {"type": "integer"},
+          "height": {"type": "integer"},
+          "fileSize": {"type": "integer"},
+          "format": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.camera",
+    "methods": {
+      "camera.list": "camera.list",
+      "camera.snap": "camera.snap",
+      "camera.capture": "camera.capture"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}
