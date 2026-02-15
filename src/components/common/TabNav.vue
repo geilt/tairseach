@@ -18,7 +18,6 @@ const navItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', emoji: '🏠', route: '/' },
   { id: 'permissions', label: 'Permissions', emoji: '🔐', route: '/permissions' },
   { id: 'config', label: 'Config', emoji: '⚙️', route: '/config' },
-  { id: 'google', label: 'Google', emoji: '🟢', route: '/settings/google' },
   { id: 'monitor', label: 'Monitor', emoji: '📊', route: '/monitor' },
   { id: 'activity', label: 'Activity', emoji: '🧾', route: '/activity' },
   { id: 'profiles', label: 'Profiles', emoji: '👤', route: '/profiles' },

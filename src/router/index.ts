@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '../views/DashboardView.vue'
 import PermissionsView from '../views/PermissionsView.vue'
 import ConfigView from '../views/ConfigView.vue'
-import GoogleSettingsView from '../views/GoogleSettingsView.vue'
 import MonitorView from '../views/MonitorView.vue'
 import ActivityView from '../views/ActivityView.vue'
 import ProfilesView from '../views/ProfilesView.vue'
@@ -30,12 +29,6 @@ const router = createRouter({
       name: 'config',
       component: ConfigView,
       meta: { title: 'Configuration' },
-    },
-    {
-      path: '/settings/google',
-      name: 'settings-google',
-      component: GoogleSettingsView,
-      meta: { title: 'Google OAuth Settings' },
     },
     {
       path: '/monitor',

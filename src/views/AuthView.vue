@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
 import { useAuthStore } from '@/stores/auth'
 import type { AccountInfo } from '@/stores/auth'
@@ -39,8 +40,18 @@ interface Vault {
 // ═══════════════════════════════════════════════════════════════
 
 const store = useAuthStore()
+const route = useRoute()
 const actionMessage = ref<{ type: 'success' | 'error'; text: string } | null>(null)
 const isConnectingOAuth = ref(false)
+const googleSectionOpen = ref(false)
+const googleConfigOpen = ref(false)
+const googleClientId = ref('')
+const googleClientSecret = ref('')
+const googleJsonInput = ref('')
+const googleDragOver = ref(false)
+const savingGoogleConfig = ref(false)
+const testingGoogleConfig = ref(false)
+const googleStatus = ref<{ status: string; configured: boolean; has_token: boolean; message: string } | null>(null)
 let actionMessageTimer: number | null = null
 
 function scheduleActionMessageClear(delayMs = 3000) {
@@ -106,6 +117,12 @@ onMounted(() => {
   void store.init()
   void loadCredentialTypes()
   void loadAllCredentials()
+  void loadGoogleConfigStatus()
+
+  const requested = String(route.query.credential || '')
+  if (requested) {
+    openCredentialForm(requested)
+  }
 })
 
 onActivated(() => {
@@ -121,14 +138,15 @@ onActivated(() => {
 async function loadCredentialTypes() {
   loadingTypes.value = true
   try {
-    const types = await invoke<CredentialType[]>('auth_credential_types')
-    requestAnimationFrame(() => {
-      credentialTypes.value = types
-      loadingTypes.value = false
-    })
+    const [types, manifests] = await Promise.all([
+      invoke<CredentialType[]>('auth_credential_types'),
+      invoke<any[]>('get_all_manifests').catch(() => [])
+    ])
+    const dynamicTypes = loadManifestCredentialTypes(manifests)
+    const existing = new Set(types.map(t => t.type))
+    credentialTypes.value = [...types, ...dynamicTypes.filter(t => !existing.has(t.type))]
   } catch (e) {
     console.warn('Backend credential types not implemented yet:', e)
-    // Fallback to default types
     const defaultTypes: CredentialType[] = [
       {
         type: '1password',
@@ -157,10 +175,12 @@ async function loadCredentialTypes() {
         ]
       }
     ]
-    requestAnimationFrame(() => {
-      credentialTypes.value = defaultTypes
-      loadingTypes.value = false
-    })
+    const manifests = await invoke<any[]>('get_all_manifests').catch(() => [])
+    const dynamicTypes = loadManifestCredentialTypes(manifests)
+    const existing = new Set(defaultTypes.map(t => t.type))
+    credentialTypes.value = [...defaultTypes, ...dynamicTypes.filter(t => !existing.has(t.type))]
+  } finally {
+    loadingTypes.value = false
   }
 }
 
@@ -500,6 +520,7 @@ async function handleConnectGoogle() {
     })
     
     await store.loadAccounts()
+    await loadGoogleConfigStatus()
     
     requestAnimationFrame(() => {
       scheduleActionMessageClear(5000)
@@ -514,6 +535,128 @@ async function handleConnectGoogle() {
       scheduleActionMessageClear(5000)
     })
   }
+}
+
+
+function toggleGoogleSection() {
+  googleSectionOpen.value = !googleSectionOpen.value
+}
+
+function parseAndApplyGoogleJson(raw: string) {
+  const parsed = JSON.parse(raw)
+  const installed = parsed?.installed ?? parsed?.web ?? parsed
+  const extractedId = installed?.client_id
+  const extractedSecret = installed?.client_secret
+  if (!extractedId || !extractedSecret) throw new Error('Could not find client_id and client_secret in JSON')
+  googleClientId.value = extractedId
+  googleClientSecret.value = extractedSecret
+  setFeedback('success', 'Parsed Google client_secret.json')
+}
+
+async function loadGoogleConfigStatus() {
+  try {
+    const [cfg, st] = await Promise.all([
+      invoke<{ client_id: string; client_secret: string } | null>('get_google_oauth_config'),
+      invoke<{ status: string; configured: boolean; has_token: boolean; message: string }>('get_google_oauth_status'),
+    ])
+    if (cfg) {
+      googleClientId.value = cfg.client_id || ''
+      googleClientSecret.value = cfg.client_secret || ''
+    }
+    googleStatus.value = st
+  } catch (e) {
+    console.warn('Google config/status unavailable:', e)
+  }
+}
+
+async function saveGoogleConfig() {
+  if (!googleClientId.value.trim() || !googleClientSecret.value.trim()) {
+    setFeedback('error', 'Google Client ID and Client Secret are required')
+    return
+  }
+  savingGoogleConfig.value = true
+  try {
+    await invoke('save_google_oauth_config', { clientId: googleClientId.value, clientSecret: googleClientSecret.value })
+    setFeedback('success', 'Google OAuth credentials saved')
+    await loadGoogleConfigStatus()
+  } catch (e) {
+    setFeedback('error', `Failed to save Google config: ${e}`)
+  } finally {
+    savingGoogleConfig.value = false
+  }
+}
+
+async function testGoogleConfig() {
+  testingGoogleConfig.value = true
+  try {
+    const result = await invoke<{ ok: boolean; message: string }>('test_google_oauth_config', {
+      clientId: googleClientId.value,
+      clientSecret: googleClientSecret.value,
+    })
+    setFeedback(result.ok ? 'success' : 'error', result.message)
+    await loadGoogleConfigStatus()
+  } catch (e) {
+    setFeedback('error', `Google test failed: ${e}`)
+  } finally {
+    testingGoogleConfig.value = false
+  }
+}
+
+async function onGoogleFileInput(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  const text = await file.text()
+  parseAndApplyGoogleJson(text)
+}
+
+async function onGoogleDrop(event: DragEvent) {
+  googleDragOver.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (!file) return
+  const text = await file.text()
+  parseAndApplyGoogleJson(text)
+}
+
+function loadManifestCredentialTypes(manifests: any[]): CredentialType[] {
+  const built: CredentialType[] = []
+  const seen = new Set<string>()
+  for (const manifest of manifests) {
+    const creds = manifest?.requires?.credentials
+    if (!Array.isArray(creds)) continue
+    for (const c of creds) {
+      const rawType = (c?.provider || c?.id || '').toString().toLowerCase()
+      if (!rawType) continue
+      let typeId = rawType.replace(/[^a-z0-9]+/g, '_')
+      if (typeId.includes('google')) typeId = 'google_oauth'
+      if (typeId.includes('onepassword')) typeId = '1password'
+      if (seen.has(typeId)) continue
+      seen.add(typeId)
+
+      const schemaFields = Array.isArray(c?.schema?.fields) ? c.schema.fields : null
+      const fields = schemaFields?.map((f: any) => ({
+        name: f.name,
+        display_name: f.display_name || f.name,
+        type: f.type === 'secret' ? 'secret' : 'string',
+        required: f.required !== false,
+      })) || [
+        {
+          name: c?.kind === 'oauth2' ? 'oauth_token' : 'token',
+          display_name: c?.kind === 'oauth2' ? 'OAuth Token' : 'Token',
+          type: 'secret' as const,
+          required: true,
+        },
+      ]
+
+      built.push({
+        type: typeId,
+        display_name: manifest?.name || typeId,
+        fields,
+        supports_multiple: true,
+      })
+    }
+  }
+  return built
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -821,56 +964,55 @@ function setFeedback(type: 'success' | 'error', text: string) {
       </div>
     </div>
 
-    <!-- Google OAuth (Legacy) -->
+    <!-- Google Account -->
     <div class="naonur-card">
-      <h2 class="font-display text-lg text-naonur-bone mb-4">Connect OAuth Provider</h2>
-      
-      <div class="space-y-2">
-        <div 
-          class="p-3 rounded-lg bg-naonur-fog/10 border border-naonur-fog/20 hover:border-naonur-gold/30 transition-colors cursor-pointer group"
-          @click="!isConnectingOAuth ? handleConnectGoogle() : null"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <span class="text-xl">🔵</span>
-              <div>
-                <h4 class="font-display text-sm text-naonur-bone group-hover:text-naonur-gold transition-colors">
-                  Google
-                </h4>
-                <p class="text-xs text-naonur-smoke">
-                  Gmail, Drive, Calendar, Contacts
-                </p>
-              </div>
-            </div>
-            <button 
-              class="btn btn-primary text-xs px-3 py-1"
-              :disabled="isConnectingOAuth"
-            >
-              <span v-if="isConnectingOAuth" class="flex items-center gap-2">
-                <span class="animate-spin">⏳</span>
-                Connecting...
-              </span>
-              <span v-else>Connect</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <button class="w-full flex items-center justify-between" @click="toggleGoogleSection">
+        <h2 class="font-display text-lg text-naonur-bone">Google Account</h2>
+        <span class="text-naonur-smoke text-sm">{{ googleSectionOpen ? 'Hide' : 'Show' }}</span>
+      </button>
 
-      <!-- OAuth Loading Indicator -->
       <Transition
-        enter-active-class="transition-all duration-300"
+        enter-active-class="transition-all duration-200"
         enter-from-class="opacity-0 max-h-0"
-        enter-to-class="opacity-100 max-h-20"
-        leave-active-class="transition-all duration-300"
-        leave-from-class="opacity-100 max-h-20"
+        enter-to-class="opacity-100 max-h-[900px]"
+        leave-active-class="transition-all duration-200"
+        leave-from-class="opacity-100 max-h-[900px]"
         leave-to-class="opacity-0 max-h-0"
       >
-        <div v-if="isConnectingOAuth" class="mt-3 p-3 rounded-lg bg-naonur-gold/10 border border-naonur-gold/30 overflow-hidden">
-          <div class="flex items-center gap-3">
-            <span class="text-xl animate-spin">⏳</span>
-            <div>
-              <p class="text-sm text-naonur-bone font-medium">OAuth in progress...</p>
-              <p class="text-xs text-naonur-smoke">Complete sign-in in your browser.</p>
+        <div v-if="googleSectionOpen" class="mt-4 space-y-4 overflow-hidden">
+          <div class="p-3 rounded-lg border border-naonur-fog/30 bg-naonur-fog/10">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm text-naonur-bone">OAuth Status</p>
+                <p class="text-xs text-naonur-smoke">{{ googleStatus?.message || 'Unknown' }}</p>
+              </div>
+              <button class="btn btn-primary text-xs" :disabled="isConnectingOAuth" @click="handleConnectGoogle">
+                {{ isConnectingOAuth ? 'Connecting…' : 'Connect' }}
+              </button>
+            </div>
+          </div>
+
+          <button class="btn btn-ghost text-xs" @click="googleConfigOpen = !googleConfigOpen">
+            {{ googleConfigOpen ? 'Hide OAuth client config' : 'Show OAuth client config' }}
+          </button>
+
+          <div v-if="googleConfigOpen" class="p-3 rounded-lg border border-naonur-fog/30 bg-naonur-void/40 space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input v-model="googleClientId" class="input-field" placeholder="Google Client ID" />
+              <input v-model="googleClientSecret" class="input-field" placeholder="Google Client Secret" type="password" />
+            </div>
+
+            <div class="p-3 border border-dashed border-naonur-fog/40 rounded-lg" :class="{ 'bg-naonur-gold/10': googleDragOver }"
+              @dragover.prevent="googleDragOver = true" @dragleave.prevent="googleDragOver = false" @drop.prevent="onGoogleDrop">
+              <p class="text-xs text-naonur-smoke mb-2">Upload or paste client_secret.json</p>
+              <input type="file" accept="application/json" @change="onGoogleFileInput" />
+              <textarea v-model="googleJsonInput" class="input-field w-full mt-2 min-h-[84px] font-mono text-xs" placeholder='{"installed":{"client_id":"...","client_secret":"..."}}'/>
+              <button class="btn btn-ghost text-xs mt-2" @click="parseAndApplyGoogleJson(googleJsonInput)">Parse JSON</button>
+            </div>
+
+            <div class="flex gap-2">
+              <button class="btn btn-secondary text-xs" :disabled="savingGoogleConfig" @click="saveGoogleConfig">{{ savingGoogleConfig ? 'Saving…' : 'Save Client Config' }}</button>
+              <button class="btn btn-ghost text-xs" :disabled="testingGoogleConfig" @click="testGoogleConfig">{{ testingGoogleConfig ? 'Testing…' : 'Test Config' }}</button>
             </div>
           </div>
         </div>

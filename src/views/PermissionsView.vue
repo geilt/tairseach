@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, onActivated, computed, ref, watch } from 'vue'
+import { onMounted, onUnmounted, onActivated, computed, nextTick, ref, watch } from 'vue'
 import StatusBadge from '../components/common/StatusBadge.vue'
 import SectionHeader from '../components/common/SectionHeader.vue'
 import LoadingState from '../components/common/LoadingState.vue'
@@ -76,8 +76,13 @@ watch(
   { immediate: true }
 )
 
-function requestPermission(id: string) {
-  store.requestPermission(id)
+async function requestPermission(id: string) {
+  const scrollY = window.scrollY
+  await store.requestPermission(id)
+  await nextTick()
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: scrollY })
+  })
 }
 
 function openSystemPreferences() {
