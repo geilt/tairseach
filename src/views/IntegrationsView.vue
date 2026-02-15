@@ -1,57 +1,49 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import SectionHeader from '@/components/common/SectionHeader.vue'
 import LoadingState from '@/components/common/LoadingState.vue'
 import ErrorBanner from '@/components/common/ErrorBanner.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { api } from '@/api/tairseach'
 import { useWorkerPoller } from '@/composables/useWorkerPoller'
-
-type JsonObj = Record<string, any>
-interface ToolDef {
-  name: string
-  description?: string
-  inputSchema?: JsonObj
-  requires?: { permissions?: Array<{ name: string }> }
-}
-interface ManifestDef {
-  id: string
-  name: string
-  description?: string
-  category?: string
-  tools?: ToolDef[]
-  requires?: {
-    permissions?: Array<{ name: string }>
-    credentials?: Array<{ id?: string; provider?: string; kind?: string }>
-  }
-}
-
-interface IntegrationCard {
-  id: string
-  name: string
-  description: string
-  emoji: string
-  tools: ToolDef[]
-  credentialTypes: string[]
-  permissions: string[]
-}
+import type { Manifest, Permission, CredentialMetadata } from '@/api/types'
 
 const router = useRouter()
+
+// State
 const loading = ref(true)
 const error = ref<string | null>(null)
-const manifests = ref<ManifestDef[]>([])
-const credentials = ref<Array<{ type: string }>>([])
-const permissions = ref<Array<{ id: string; status: string }>>([])
-const expanded = ref<string | null>(null)
+const manifests = ref<Manifest[]>([])
+const credentials = ref<CredentialMetadata[]>([])
+const permissions = ref<Permission[]>([])
+
+// Collapsible sections
+const expandedSections = ref<Set<string>>(new Set(['native']))
+const expandedIntegrations = ref<Set<string>>(new Set())
+const expandedTools = ref<Set<string>>(new Set())
+
+// Test state
 const testing = ref<string | null>(null)
 const testResult = ref<Record<string, unknown>>({})
 const testError = ref<Record<string, string>>({})
+
+// MCP install state
 const installingToOpenClaw = ref(false)
 const openclawInstallResult = ref<{ success: boolean; message: string } | null>(null)
 
 const { proxyStatus, namespaceStatuses, socketAlive } = useWorkerPoller()
 
-const EMOJI_BY_ID: Record<string, string> = {
+// Category emoji mapping
+const CATEGORY_EMOJI: Record<string, string> = {
+  productivity: '📊',
+  communication: '📧',
+  security: '🔐',
+  health: '💍',
+  collaboration: '📋',
+}
+
+const INTEGRATION_EMOJI: Record<string, string> = {
   contacts: '👥',
   calendar: '📅',
   reminders: '📝',
@@ -61,6 +53,8 @@ const EMOJI_BY_ID: Record<string, string> = {
   auth: '🔐',
   permissions: '🛡️',
   automation: '🤖',
+  server: '⚙️',
+  config: '⚙️',
   onepassword: '🔑',
   jira: '📋',
   oura: '💍',
@@ -68,148 +62,175 @@ const EMOJI_BY_ID: Record<string, string> = {
   'google-calendar-api': '📅',
 }
 
-const CREDENTIAL_ALIASES: Record<string, string[]> = {
-  google: ['google', 'google_oauth', 'google-oauth'],
-  onepassword: ['1password', 'onepassword'],
-  jira: ['jira'],
-  oura: ['oura'],
+// Helper: Get emoji for manifest
+function getEmoji(manifest: Manifest): string {
+  return INTEGRATION_EMOJI[manifest.id] || CATEGORY_EMOJI[manifest.category] || '🔗'
 }
 
-function normalizeType(type: string): string {
-  return type.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+// Helper: Check if permission is granted
+function permissionGranted(permId: string): boolean {
+  return permissions.value.some(p => p.id === permId && p.status === 'granted')
 }
 
-function resolveCredentialType(provider?: string, id?: string) {
-  const base = provider || id || ''
-  const normalized = normalizeType(base)
-  if (normalized.includes('onepassword')) return '1password'
-  if (normalized.includes('google')) return 'google_oauth'
-  if (normalized.includes('jira')) return 'jira'
-  if (normalized.includes('oura')) return 'oura'
-  return normalized
+// Helper: Check if credential exists
+function hasCredential(provider?: string, id?: string): boolean {
+  if (!provider && !id) return true
+  
+  const search = (provider || id || '').toLowerCase()
+  return credentials.value.some(c => {
+    const type = c.type.toLowerCase()
+    return type.includes(search) || search.includes(type)
+  })
 }
 
-function extractPermissions(manifest: ManifestDef): string[] {
-  const top = manifest.requires?.permissions?.map(p => p.name) ?? []
-  const fromTools = (manifest.tools ?? []).flatMap(t => t.requires?.permissions?.map(p => p.name) ?? [])
-  return [...new Set([...top, ...fromTools])]
-}
-
-const cards = computed<IntegrationCard[]>(() => {
-  return manifests.value.map((manifest) => {
-    const credTypes = (manifest.requires?.credentials ?? [])
-      .map(c => resolveCredentialType(c.provider, c.id))
-      .filter(Boolean)
-
-    return {
-      id: manifest.id,
-      name: manifest.name,
-      description: manifest.description || 'No description available.',
-      emoji: EMOJI_BY_ID[manifest.id] || '🔗',
-      tools: manifest.tools ?? [],
-      credentialTypes: [...new Set(credTypes)],
-      permissions: extractPermissions(manifest),
-    }
-  }).sort((a, b) => a.name.localeCompare(b.name))
-})
-
-function hasCredential(type: string): boolean {
-  const wanted = normalizeType(type)
-  const all = credentials.value.map(c => normalizeType(c.type))
-  if (all.includes(wanted)) return true
-
-  for (const [root, aliases] of Object.entries(CREDENTIAL_ALIASES)) {
-    if (wanted.includes(root) || root.includes(wanted)) {
-      if (aliases.some(alias => all.includes(normalizeType(alias)))) return true
-    }
-  }
-  return false
-}
-
-function permissionGranted(id: string): boolean {
-  return permissions.value.some(p => p.id === id && p.status === 'granted')
-}
-
-function credentialStatus(card: IntegrationCard) {
-  if (card.credentialTypes.length === 0) return { ok: true, missing: [] as string[] }
-  const missing = card.credentialTypes.filter(t => !hasCredential(t))
-  return { ok: missing.length === 0, missing }
-}
-
-function permissionStatus(card: IntegrationCard) {
-  if (card.permissions.length === 0) return { ok: true, missing: [] as string[] }
-  const missing = card.permissions.filter(p => !permissionGranted(p))
-  return { ok: missing.length === 0, missing }
-}
-
+// Helper: Get namespace status
 function getNamespaceStatus(manifestId: string) {
-  const namespace = manifestId.split('.')[0] || 'default'
+  const namespace = manifestId.split('.')[0] || manifestId
   return namespaceStatuses.value.find(s => s.namespace === namespace)
 }
 
+// Categorize manifests
+const nativeIntegrations = computed(() =>
+  manifests.value.filter(m => m.category === 'security' || 
+    ['contacts', 'calendar', 'reminders', 'location', 'screen', 'files', 'automation', 'server', 'config', 'permissions', 'auth'].includes(m.id))
+)
+
+const cloudIntegrations = computed(() =>
+  manifests.value.filter(m => !nativeIntegrations.value.find(n => n.id === m.id))
+)
+
+// Status helpers
+interface IntegrationStatus {
+  connected: boolean
+  permissionsOk: boolean
+  credentialsOk: boolean
+  missingPermissions: string[]
+  missingCredentials: string[]
+}
+
+function getIntegrationStatus(manifest: Manifest): IntegrationStatus {
+  const nsStatus = getNamespaceStatus(manifest.id)
+  const connected = nsStatus?.connected ?? false
+  
+  const requiredPerms = manifest.requires?.permissions?.map((p: any) => p.name) ?? []
+  const missingPermissions = requiredPerms.filter((p: string) => !permissionGranted(p))
+  
+  const requiredCreds = manifest.requires?.credentials ?? []
+  const missingCredentials = requiredCreds
+    .filter((c: any) => !hasCredential(c.provider, c.id))
+    .map((c: any) => c.provider || c.id || 'unknown')
+  
+  return {
+    connected,
+    permissionsOk: missingPermissions.length === 0,
+    credentialsOk: missingCredentials.length === 0,
+    missingPermissions,
+    missingCredentials,
+  }
+}
+
+// Toggle helpers
+function toggleSection(section: string) {
+  if (expandedSections.value.has(section)) {
+    expandedSections.value.delete(section)
+  } else {
+    expandedSections.value.add(section)
+  }
+}
+
+function toggleIntegration(id: string) {
+  if (expandedIntegrations.value.has(id)) {
+    expandedIntegrations.value.delete(id)
+  } else {
+    expandedIntegrations.value.add(id)
+  }
+}
+
+function toggleTools(id: string) {
+  if (expandedTools.value.has(id)) {
+    expandedTools.value.delete(id)
+  } else {
+    expandedTools.value.add(id)
+  }
+}
+
+// Load data
 async function loadAll() {
   loading.value = true
   error.value = null
+  
   try {
     const [allManifests, allCreds, allPerms] = await Promise.all([
-      api.mcp.manifests(),
-      api.auth.credentialsList(),
-      api.permissions.all(),
+      api.mcp.manifests().catch(() => []),
+      api.auth.credentialsList().catch(() => []),
+      api.permissions.all().catch(() => []),
     ])
-
-    manifests.value = allManifests as ManifestDef[]
+    
+    manifests.value = allManifests
     credentials.value = allCreds
-    permissions.value = allPerms.map((p: any) => ({ id: p.id, status: p.status }))
+    permissions.value = allPerms
   } catch (e) {
-    error.value = String(e)
+    error.value = `Failed to load integrations: ${e}`
   } finally {
     loading.value = false
   }
 }
 
-function toggleTools(id: string) {
-  expanded.value = expanded.value === id ? null : id
+// Test tool
+function getTestTool(manifest: Manifest) {
+  if (!manifest.tools?.length) return null
+  const readOnly = manifest.tools.find(t => t.annotations?.readOnlyHint)
+  return readOnly || manifest.tools[0]
 }
 
-function goConfigure(type?: string) {
-  router.push({ path: '/auth', query: type ? { credential: type } : undefined })
-}
-
-function getTestTool(card: IntegrationCard): ToolDef | null {
-  if (!card.tools.length) return null
-  const zeroArg = card.tools.find(t => (t.inputSchema?.required?.length ?? 0) === 0)
-  return zeroArg || card.tools[0]
-}
-
-async function runTest(card: IntegrationCard) {
-  const tool = getTestTool(card)
+async function runTest(manifest: Manifest) {
+  const tool = getTestTool(manifest)
   if (!tool) return
-
-  testing.value = card.id
-  delete testResult.value[card.id]
-  delete testError.value[card.id]
-
+  
+  testing.value = manifest.id
+  delete testResult.value[manifest.id]
+  delete testError.value[manifest.id]
+  
   try {
     const result = await api.mcp.testTool(tool.name, {})
-    testResult.value[card.id] = result
+    testResult.value = { ...testResult.value, [manifest.id]: result }
   } catch (e) {
-    testError.value[card.id] = String(e)
+    testError.value = { ...testError.value, [manifest.id]: String(e) }
   } finally {
     testing.value = null
   }
 }
 
+// Navigation
+function goToAuth(provider?: string) {
+  router.push({ path: '/auth', query: provider ? { credential: provider } : undefined })
+}
+
+function goToPermissions() {
+  router.push('/permissions')
+}
+
+// MCP install
 async function installToOpenClaw() {
   installingToOpenClaw.value = true
   openclawInstallResult.value = null
+  
   try {
-    openclawInstallResult.value = await api.mcp.installToOpenClaw()
+    const result = await api.mcp.installToOpenClaw()
+    openclawInstallResult.value = result
   } catch (e) {
     openclawInstallResult.value = { success: false, message: String(e) }
   } finally {
     installingToOpenClaw.value = false
   }
 }
+
+// Auto-refresh on namespace changes
+watch(namespaceStatuses, () => {
+  if (!loading.value && manifests.value.length > 0) {
+    void loadAll()
+  }
+}, { deep: true })
 
 onMounted(loadAll)
 </script>
@@ -219,100 +240,371 @@ onMounted(loadAll)
     <SectionHeader
       title="Integrations"
       icon="🔗"
-      description="Available Bridges"
+      description="Bridges to the Otherworld — All capabilities in one view."
     />
-    <p class="-mt-4 mb-6 text-sm text-naonur-smoke">Bridges to the Otherworld — credentials, permissions, and tools at a glance.</p>
 
+    <!-- Status Overview -->
     <div class="grid grid-cols-3 gap-4 mb-6">
       <div class="naonur-card">
-        <p class="text-xs text-naonur-smoke">Proxy</p>
-        <p :class="proxyStatus.running ? 'text-naonur-moss' : 'text-naonur-blood'">{{ proxyStatus.running ? 'Running' : 'Stopped' }}</p>
+        <p class="text-xs text-naonur-smoke mb-1">Proxy</p>
+        <div class="flex items-center gap-2">
+          <span :class="proxyStatus.running ? 'text-naonur-moss' : 'text-naonur-blood'">●</span>
+          <p :class="proxyStatus.running ? 'text-naonur-moss' : 'text-naonur-blood'" class="text-sm font-mono">
+            {{ proxyStatus.running ? 'Running' : 'Stopped' }}
+          </p>
+        </div>
       </div>
       <div class="naonur-card">
-        <p class="text-xs text-naonur-smoke">Socket</p>
-        <p :class="socketAlive ? 'text-naonur-moss' : 'text-naonur-blood'">{{ socketAlive ? 'Alive' : 'Dead' }}</p>
+        <p class="text-xs text-naonur-smoke mb-1">Socket</p>
+        <div class="flex items-center gap-2">
+          <span :class="socketAlive ? 'text-naonur-moss' : 'text-naonur-blood'">●</span>
+          <p :class="socketAlive ? 'text-naonur-moss' : 'text-naonur-blood'" class="text-sm font-mono">
+            {{ socketAlive ? 'Alive' : 'Dead' }}
+          </p>
+        </div>
       </div>
       <div class="naonur-card">
-        <p class="text-xs text-naonur-smoke">Namespaces</p>
-        <p class="text-naonur-bone">{{ namespaceStatuses.length }} tracked</p>
+        <p class="text-xs text-naonur-smoke mb-1">Integrations</p>
+        <p class="text-naonur-bone text-lg font-display">{{ manifests.length }}</p>
       </div>
     </div>
 
-    <LoadingState v-if="loading" message="Gathering manifest bridges..." />
+    <LoadingState v-if="loading" message="Loading integrations..." />
     <ErrorBanner v-else-if="error" :message="error" @retry="loadAll" />
 
-    <div v-else class="space-y-4">
-      <div v-for="card in cards" :key="card.id" class="naonur-card">
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex items-start gap-3 flex-1">
-            <span class="text-3xl">{{ card.emoji }}</span>
-            <div class="flex-1">
-              <h3 class="font-display text-lg text-naonur-bone">{{ card.name }}</h3>
-              <p class="text-sm text-naonur-ash">{{ card.description }}</p>
-
-              <div class="mt-3 space-y-1 text-xs">
-                <div>
-                  <span :class="getNamespaceStatus(card.id)?.connected ? 'text-naonur-moss' : 'text-naonur-blood'">
-                    {{ getNamespaceStatus(card.id)?.connected ? '✅ Namespace Connected' : '❌ Namespace Disconnected' }}
-                  </span>
-                </div>
-                <div>
-                  <span :class="credentialStatus(card).ok ? 'text-naonur-moss' : 'text-naonur-blood'">
-                    {{ credentialStatus(card).ok ? '✅ Credentials' : '❌ Credentials' }}
-                  </span>
-                  <span class="text-naonur-smoke ml-2" v-if="card.credentialTypes.length">{{ card.credentialTypes.join(', ') }}</span>
-                </div>
-                <div>
-                  <span :class="permissionStatus(card).ok ? 'text-naonur-moss' : 'text-naonur-blood'">
-                    {{ permissionStatus(card).ok ? '✅ Permissions' : '❌ Permissions' }}
-                  </span>
-                  <span class="text-naonur-smoke ml-2" v-if="card.permissions.length">{{ card.permissions.join(', ') }}</span>
-                </div>
-              </div>
+    <div v-else class="space-y-6">
+      <!-- Tairseach Native Section -->
+      <section class="naonur-card">
+        <button
+          class="w-full flex items-center justify-between text-left"
+          @click="toggleSection('native')"
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">⚙️</span>
+            <div>
+              <h2 class="font-display text-lg text-naonur-gold">Tairseach Native</h2>
+              <p class="text-xs text-naonur-smoke">Built-in macOS integrations</p>
             </div>
           </div>
-
-          <div class="flex items-center gap-2">
-            <button class="btn btn-ghost text-xs" @click="toggleTools(card.id)">
-              {{ expanded === card.id ? 'Hide Tools' : 'Tools' }}
-            </button>
-            <button
-              class="btn btn-secondary text-xs"
-              v-if="credentialStatus(card).missing.length"
-              @click="goConfigure(credentialStatus(card).missing[0])"
-            >
-              Configure
-            </button>
-            <button
-              class="btn btn-ghost text-xs"
-              :disabled="testing === card.id"
-              @click="runTest(card)"
-            >{{ testing === card.id ? 'Testing…' : 'Test' }}</button>
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-naonur-smoke font-mono">{{ nativeIntegrations.length }} integrations</span>
+            <span class="text-naonur-ash">{{ expandedSections.has('native') ? '▼' : '▶' }}</span>
           </div>
-        </div>
-
-        <div v-if="expanded === card.id" class="mt-4 border-t border-naonur-fog/20 pt-3 space-y-2">
-          <div v-for="tool in card.tools" :key="tool.name" class="rounded-lg border border-naonur-fog/20 p-3 bg-naonur-void/30">
-            <code class="text-xs text-naonur-gold">{{ tool.name }}</code>
-            <p class="text-sm text-naonur-ash mt-1">{{ tool.description || 'No description' }}</p>
-          </div>
-          <div v-if="!card.tools.length" class="text-sm text-naonur-smoke">No tools defined.</div>
-        </div>
-
-        <pre v-if="testResult[card.id]" class="mt-3 text-xs bg-naonur-void border border-naonur-fog/30 p-2 rounded overflow-auto max-h-44">{{ JSON.stringify(testResult[card.id], null, 2) }}</pre>
-        <pre v-if="testError[card.id]" class="mt-3 text-xs bg-naonur-blood/10 border border-naonur-blood/30 p-2 rounded overflow-auto">{{ testError[card.id] }}</pre>
-      </div>
-
-      <div class="naonur-card">
-        <h3 class="font-display text-naonur-bone mb-2">OpenClaw Install Wizard</h3>
-        <p class="text-xs text-naonur-smoke mb-3">Install Tairseach MCP tools into OpenClaw config.</p>
-        <button class="btn btn-primary text-xs" :disabled="installingToOpenClaw" @click="installToOpenClaw">
-          {{ installingToOpenClaw ? 'Installing…' : 'Install to OpenClaw' }}
         </button>
-        <p v-if="openclawInstallResult" :class="['mt-2 text-xs', openclawInstallResult.success ? 'text-naonur-moss' : 'text-naonur-blood']">
-          {{ openclawInstallResult.message }}
-        </p>
-      </div>
+
+        <Transition
+          enter-active-class="transition-all duration-300 ease-out"
+          leave-active-class="transition-all duration-300 ease-in"
+          enter-from-class="opacity-0 max-h-0"
+          enter-to-class="opacity-100 max-h-screen"
+          leave-from-class="opacity-100 max-h-screen"
+          leave-to-class="opacity-0 max-h-0"
+        >
+          <div v-if="expandedSections.has('native')" class="mt-4 space-y-3 overflow-hidden">
+            <div
+              v-for="manifest in nativeIntegrations"
+              :key="manifest.id"
+              class="border border-naonur-fog/20 rounded-lg overflow-hidden"
+            >
+              <button
+                class="w-full px-4 py-3 flex items-start justify-between bg-naonur-fog/5 hover:bg-naonur-fog/10 transition-colors text-left"
+                @click="toggleIntegration(manifest.id)"
+              >
+                <div class="flex items-start gap-3 flex-1">
+                  <span class="text-2xl flex-shrink-0">{{ getEmoji(manifest) }}</span>
+                  <div class="flex-1 min-w-0">
+                    <h3 class="font-display text-naonur-bone">{{ manifest.name }}</h3>
+                    <p class="text-xs text-naonur-smoke mt-0.5">{{ manifest.description }}</p>
+                    
+                    <!-- Status Icons -->
+                    <div class="flex items-center gap-3 mt-2 text-xs">
+                      <div :class="getIntegrationStatus(manifest).connected ? 'text-naonur-moss' : 'text-naonur-fog'">
+                        <span :title="getIntegrationStatus(manifest).connected ? 'Connected' : 'Disconnected'">
+                          {{ getIntegrationStatus(manifest).connected ? '✓' : '○' }} Connection
+                        </span>
+                      </div>
+                      <div :class="getIntegrationStatus(manifest).permissionsOk ? 'text-naonur-moss' : 'text-naonur-blood'">
+                        <span :title="getIntegrationStatus(manifest).permissionsOk ? 'Permissions OK' : 'Permissions missing'">
+                          {{ getIntegrationStatus(manifest).permissionsOk ? '✓' : '✗' }} Permissions
+                        </span>
+                      </div>
+                      <div class="text-naonur-fog">
+                        <span>{{ manifest.tools?.length || 0 }} tools</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <span class="text-naonur-ash ml-2">{{ expandedIntegrations.has(manifest.id) ? '▼' : '▶' }}</span>
+              </button>
+
+              <!-- Expanded Details -->
+              <Transition
+                enter-active-class="transition-all duration-200"
+                leave-active-class="transition-all duration-200"
+                enter-from-class="opacity-0 max-h-0"
+                enter-to-class="opacity-100 max-h-96"
+                leave-from-class="opacity-100 max-h-96"
+                leave-to-class="opacity-0 max-h-0"
+              >
+                <div v-if="expandedIntegrations.has(manifest.id)" class="px-4 py-3 bg-naonur-void/20 border-t border-naonur-fog/20 overflow-hidden">
+                  <!-- Missing Permissions -->
+                  <div v-if="getIntegrationStatus(manifest).missingPermissions.length" class="mb-3">
+                    <p class="text-xs text-naonur-blood mb-2">Missing permissions:</p>
+                    <div class="flex flex-wrap gap-2">
+                      <span
+                        v-for="perm in getIntegrationStatus(manifest).missingPermissions"
+                        :key="perm"
+                        class="px-2 py-1 text-xs bg-naonur-blood/10 text-naonur-blood rounded border border-naonur-blood/30"
+                      >
+                        {{ perm }}
+                      </span>
+                    </div>
+                    <button class="btn btn-ghost text-xs mt-2" @click="goToPermissions">
+                      Grant Permissions →
+                    </button>
+                  </div>
+
+                  <!-- Tools List -->
+                  <div>
+                    <button class="text-xs text-naonur-gold mb-2" @click="toggleTools(manifest.id)">
+                      {{ expandedTools.has(manifest.id) ? '▼' : '▶' }} Tools ({{ manifest.tools?.length || 0 }})
+                    </button>
+                    
+                    <div v-if="expandedTools.has(manifest.id)" class="space-y-2 mt-2">
+                      <div
+                        v-for="tool in manifest.tools"
+                        :key="tool.name"
+                        class="bg-naonur-void/30 border border-naonur-fog/20 rounded p-2"
+                      >
+                        <code class="text-xs text-naonur-gold">{{ tool.name }}</code>
+                        <p class="text-xs text-naonur-ash mt-1">{{ tool.description }}</p>
+                        <div class="flex gap-2 mt-1">
+                          <span v-if="tool.annotations?.readOnlyHint" class="text-xs px-1.5 py-0.5 bg-naonur-moss/10 text-naonur-moss rounded">read-only</span>
+                          <span v-if="tool.annotations?.destructiveHint" class="text-xs px-1.5 py-0.5 bg-naonur-blood/10 text-naonur-blood rounded">destructive</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Test Button -->
+                  <button
+                    v-if="getTestTool(manifest)"
+                    class="btn btn-ghost text-xs mt-3"
+                    :disabled="testing === manifest.id"
+                    @click="runTest(manifest)"
+                  >
+                    {{ testing === manifest.id ? 'Testing...' : 'Test' }}
+                  </button>
+
+                  <!-- Test Results -->
+                  <pre v-if="testResult[manifest.id]" class="mt-2 text-xs bg-naonur-void border border-naonur-fog/30 p-2 rounded overflow-auto max-h-32">{{ JSON.stringify(testResult[manifest.id], null, 2) }}</pre>
+                  <pre v-if="testError[manifest.id]" class="mt-2 text-xs bg-naonur-blood/10 border border-naonur-blood/30 p-2 rounded overflow-auto">{{ testError[manifest.id] }}</pre>
+                </div>
+              </Transition>
+            </div>
+
+            <EmptyState v-if="!nativeIntegrations.length" message="No native integrations found" />
+          </div>
+        </Transition>
+      </section>
+
+      <!-- Cloud Integrations Section -->
+      <section class="naonur-card">
+        <button
+          class="w-full flex items-center justify-between text-left"
+          @click="toggleSection('cloud')"
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">☁️</span>
+            <div>
+              <h2 class="font-display text-lg text-naonur-gold">Cloud Services</h2>
+              <p class="text-xs text-naonur-smoke">External API integrations</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-naonur-smoke font-mono">{{ cloudIntegrations.length }} integrations</span>
+            <span class="text-naonur-ash">{{ expandedSections.has('cloud') ? '▼' : '▶' }}</span>
+          </div>
+        </button>
+
+        <Transition
+          enter-active-class="transition-all duration-300 ease-out"
+          leave-active-class="transition-all duration-300 ease-in"
+          enter-from-class="opacity-0 max-h-0"
+          enter-to-class="opacity-100 max-h-screen"
+          leave-from-class="opacity-100 max-h-screen"
+          leave-to-class="opacity-0 max-h-0"
+        >
+          <div v-if="expandedSections.has('cloud')" class="mt-4 space-y-3 overflow-hidden">
+            <div
+              v-for="manifest in cloudIntegrations"
+              :key="manifest.id"
+              class="border border-naonur-fog/20 rounded-lg overflow-hidden"
+            >
+              <button
+                class="w-full px-4 py-3 flex items-start justify-between bg-naonur-fog/5 hover:bg-naonur-fog/10 transition-colors text-left"
+                @click="toggleIntegration(manifest.id)"
+              >
+                <div class="flex items-start gap-3 flex-1">
+                  <span class="text-2xl flex-shrink-0">{{ getEmoji(manifest) }}</span>
+                  <div class="flex-1 min-w-0">
+                    <h3 class="font-display text-naonur-bone">{{ manifest.name }}</h3>
+                    <p class="text-xs text-naonur-smoke mt-0.5">{{ manifest.description }}</p>
+                    
+                    <!-- Status Icons -->
+                    <div class="flex items-center gap-3 mt-2 text-xs">
+                      <div :class="getIntegrationStatus(manifest).connected ? 'text-naonur-moss' : 'text-naonur-fog'">
+                        <span :title="getIntegrationStatus(manifest).connected ? 'Connected' : 'Disconnected'">
+                          {{ getIntegrationStatus(manifest).connected ? '✓' : '○' }} Connection
+                        </span>
+                      </div>
+                      <div :class="getIntegrationStatus(manifest).credentialsOk ? 'text-naonur-moss' : 'text-naonur-blood'">
+                        <span :title="getIntegrationStatus(manifest).credentialsOk ? 'Credentials OK' : 'Credentials missing'">
+                          {{ getIntegrationStatus(manifest).credentialsOk ? '✓' : '✗' }} Credentials
+                        </span>
+                      </div>
+                      <div class="text-naonur-fog">
+                        <span>{{ manifest.tools?.length || 0 }} tools</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <span class="text-naonur-ash ml-2">{{ expandedIntegrations.has(manifest.id) ? '▼' : '▶' }}</span>
+              </button>
+
+              <!-- Expanded Details -->
+              <Transition
+                enter-active-class="transition-all duration-200"
+                leave-active-class="transition-all duration-200"
+                enter-from-class="opacity-0 max-h-0"
+                enter-to-class="opacity-100 max-h-96"
+                leave-from-class="opacity-100 max-h-96"
+                leave-to-class="opacity-0 max-h-0"
+              >
+                <div v-if="expandedIntegrations.has(manifest.id)" class="px-4 py-3 bg-naonur-void/20 border-t border-naonur-fog/20 overflow-hidden">
+                  <!-- Missing Credentials -->
+                  <div v-if="getIntegrationStatus(manifest).missingCredentials.length" class="mb-3">
+                    <p class="text-xs text-naonur-blood mb-2">Missing credentials:</p>
+                    <div class="flex flex-wrap gap-2">
+                      <span
+                        v-for="cred in getIntegrationStatus(manifest).missingCredentials"
+                        :key="cred"
+                        class="px-2 py-1 text-xs bg-naonur-blood/10 text-naonur-blood rounded border border-naonur-blood/30"
+                      >
+                        {{ cred }}
+                      </span>
+                    </div>
+                    <button class="btn btn-ghost text-xs mt-2" @click="goToAuth(getIntegrationStatus(manifest).missingCredentials[0])">
+                      Configure Credentials →
+                    </button>
+                  </div>
+
+                  <!-- Tools List -->
+                  <div>
+                    <button class="text-xs text-naonur-gold mb-2" @click="toggleTools(manifest.id)">
+                      {{ expandedTools.has(manifest.id) ? '▼' : '▶' }} Tools ({{ manifest.tools?.length || 0 }})
+                    </button>
+                    
+                    <div v-if="expandedTools.has(manifest.id)" class="space-y-2 mt-2">
+                      <div
+                        v-for="tool in manifest.tools"
+                        :key="tool.name"
+                        class="bg-naonur-void/30 border border-naonur-fog/20 rounded p-2"
+                      >
+                        <code class="text-xs text-naonur-gold">{{ tool.name }}</code>
+                        <p class="text-xs text-naonur-ash mt-1">{{ tool.description }}</p>
+                        <div class="flex gap-2 mt-1">
+                          <span v-if="tool.annotations?.readOnlyHint" class="text-xs px-1.5 py-0.5 bg-naonur-moss/10 text-naonur-moss rounded">read-only</span>
+                          <span v-if="tool.annotations?.destructiveHint" class="text-xs px-1.5 py-0.5 bg-naonur-blood/10 text-naonur-blood rounded">destructive</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Test Button -->
+                  <button
+                    v-if="getTestTool(manifest)"
+                    class="btn btn-ghost text-xs mt-3"
+                    :disabled="testing === manifest.id"
+                    @click="runTest(manifest)"
+                  >
+                    {{ testing === manifest.id ? 'Testing...' : 'Test' }}
+                  </button>
+
+                  <!-- Test Results -->
+                  <pre v-if="testResult[manifest.id]" class="mt-2 text-xs bg-naonur-void border border-naonur-fog/30 p-2 rounded overflow-auto max-h-32">{{ JSON.stringify(testResult[manifest.id], null, 2) }}</pre>
+                  <pre v-if="testError[manifest.id]" class="mt-2 text-xs bg-naonur-blood/10 border border-naonur-blood/30 p-2 rounded overflow-auto">{{ testError[manifest.id] }}</pre>
+                </div>
+              </Transition>
+            </div>
+
+            <EmptyState v-if="!cloudIntegrations.length" message="No cloud integrations configured" />
+          </div>
+        </Transition>
+      </section>
+
+      <!-- MCP / OpenClaw Section -->
+      <section class="naonur-card">
+        <button
+          class="w-full flex items-center justify-between text-left"
+          @click="toggleSection('mcp')"
+        >
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🔌</span>
+            <div>
+              <h2 class="font-display text-lg text-naonur-gold">OpenClaw Integration</h2>
+              <p class="text-xs text-naonur-smoke">MCP server installation and status</p>
+            </div>
+          </div>
+          <span class="text-naonur-ash">{{ expandedSections.has('mcp') ? '▼' : '▶' }}</span>
+        </button>
+
+        <Transition
+          enter-active-class="transition-all duration-300 ease-out"
+          leave-active-class="transition-all duration-300 ease-in"
+          enter-from-class="opacity-0 max-h-0"
+          enter-to-class="opacity-100 max-h-screen"
+          leave-from-class="opacity-100 max-h-screen"
+          leave-to-class="opacity-0 max-h-0"
+        >
+          <div v-if="expandedSections.has('mcp')" class="mt-4 overflow-hidden">
+            <p class="text-sm text-naonur-ash mb-4">
+              Install Tairseach as an MCP server in OpenClaw to use these tools in agent sessions.
+            </p>
+
+            <button
+              class="btn btn-primary mb-4"
+              :disabled="installingToOpenClaw"
+              @click="installToOpenClaw"
+            >
+              {{ installingToOpenClaw ? '⏳ Installing...' : '📦 Install to OpenClaw' }}
+            </button>
+
+            <div v-if="openclawInstallResult" :class="['p-4 rounded-lg border', openclawInstallResult.success ? 'bg-naonur-moss/10 border-naonur-moss/30 text-naonur-moss' : 'bg-naonur-blood/10 border-naonur-blood/30 text-naonur-blood']">
+              <p class="text-sm font-medium mb-1">
+                {{ openclawInstallResult.success ? '✓ Installation Successful' : '✗ Installation Failed' }}
+              </p>
+              <p class="text-xs opacity-90">{{ openclawInstallResult.message }}</p>
+            </div>
+          </div>
+        </Transition>
+      </section>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Ensure smooth height transitions */
+.max-h-0 {
+  max-height: 0;
+}
+.max-h-32 {
+  max-height: 8rem;
+}
+.max-h-96 {
+  max-height: 24rem;
+}
+.max-h-screen {
+  max-height: 100vh;
+}
+</style>

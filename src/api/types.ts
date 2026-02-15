@@ -107,6 +107,10 @@ export interface Manifest {
   category: string
   version: string
   tools: Tool[]
+  requires?: {
+    permissions?: Array<{ name: string; optional?: boolean; reason?: string }>
+    credentials?: Array<{ id?: string; provider?: string; kind?: string; scopes?: string[]; optional?: boolean }>
+  }
 }
 
 export interface Permission {
