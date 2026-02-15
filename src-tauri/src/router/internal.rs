@@ -63,6 +63,12 @@ pub async fn dispatch(
         "config" => handlers::config::handle(action, params, id).await,
         "gmail" => handlers::gmail::handle(action, params, id).await,
         "gcalendar" => handlers::google_calendar::handle(action, params, id).await,
+        "gcontacts" => handlers::google_contacts::handle(action, params, id).await,
+        "camera" => handlers::camera::handle(action, params, id).await,
+        "photos" => handlers::photos::handle(action, params, id).await,
+        "jira" => handlers::jira::handle(action, params, id).await,
+        "op" | "onepassword" => handlers::onepassword::handle(action, params, id).await,
+        "oura" => handlers::oura::handle(action, params, id).await,
         _ => JsonRpcResponse::error(
             id,
             -32601,

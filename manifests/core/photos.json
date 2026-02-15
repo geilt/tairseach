@@ -1,0 +1,136 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "photos",
+  "name": "Photos",
+  "description": "macOS Photos library access via PhotoKit (PHPhotoLibrary). Read-only operations.",
+  "version": "0.1.0",
+  "category": "system",
+  "requires": {
+    "permissions": [{"name": "photos"}]
+  },
+  "tools": [
+    {
+      "name": "photos.albums",
+      "description": "List all photo albums (smart albums and user albums).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["albums", "count"],
+        "properties": {
+          "albums": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "title": {"type": "string"},
+                "type": {"type": "string"},
+                "assetCount": {"type": "integer"}
+              }
+            }
+          },
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.list",
+      "description": "List photos from an album or all photos (with pagination).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "albumId": {"type": "string", "description": "Album ID. If omitted, lists all photos."},
+          "limit": {"type": "integer", "description": "Max photos to return. Default: 100."},
+          "offset": {"type": "integer", "description": "Pagination offset. Default: 0."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["photos", "count", "limit", "offset"],
+        "properties": {
+          "photos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "creationDate": {"type": ["string", "null"]},
+                "modificationDate": {"type": ["string", "null"]},
+                "mediaType": {"type": "string"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "duration": {"type": ["number", "null"]},
+                "isFavorite": {"type": "boolean"},
+                "location": {
+                  "type": ["object", "null"],
+                  "properties": {
+                    "latitude": {"type": "number"},
+                    "longitude": {"type": "number"}
+                  }
+                }
+              }
+            }
+          },
+          "count": {"type": "integer"},
+          "limit": {"type": "integer"},
+          "offset": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.get",
+      "description": "Get a specific photo by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": {"type": "string", "description": "Photo local identifier."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "photos.search",
+      "description": "Search photos by query string (currently supports 'favorites').",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {"type": "string", "description": "Search query (e.g., 'favorites')."},
+          "limit": {"type": "integer", "description": "Max results. Default: 50."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["query", "photos", "count"],
+        "properties": {
+          "query": {"type": "string"},
+          "photos": {"type": "array"},
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.photos",
+    "methods": {
+      "photos.albums": "photos.albums",
+      "photos.list": "photos.list",
+      "photos.get": "photos.get",
+      "photos.search": "photos.search"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

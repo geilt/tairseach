@@ -1,0 +1,97 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "oura",
+  "name": "Oura Ring",
+  "description": "Oura Ring API v2 integration for health and sleep data.",
+  "version": "0.1.0",
+  "category": "health",
+  "requires": {
+    "credentials": [{
+      "id": "oura_api_token",
+      "provider": "oura",
+      "kind": "api_token",
+      "description": "Oura personal access token"
+    }]
+  },
+  "tools": [
+    {
+      "name": "oura.sleep",
+      "description": "Get sleep data from Oura Ring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {"type": "string", "description": "Credential account name. Default: 'default'."},
+          "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD)."},
+          "startDate": {"type": "string"},
+          "end_date": {"type": "string", "description": "End date (YYYY-MM-DD)."},
+          "endDate": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.activity",
+      "description": "Get daily activity data from Oura Ring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {"type": "string"},
+          "start_date": {"type": "string"},
+          "startDate": {"type": "string"},
+          "end_date": {"type": "string"},
+          "endDate": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.readiness",
+      "description": "Get daily readiness data from Oura Ring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {"type": "string"},
+          "start_date": {"type": "string"},
+          "startDate": {"type": "string"},
+          "end_date": {"type": "string"},
+          "endDate": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "oura.heartRate",
+      "description": "Get heart rate data from Oura Ring.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "account": {"type": "string"},
+          "start_datetime": {"type": "string", "description": "Start datetime (ISO 8601)."},
+          "startDatetime": {"type": "string"},
+          "end_datetime": {"type": "string", "description": "End datetime (ISO 8601)."},
+          "endDatetime": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.oura",
+    "methods": {
+      "oura.sleep": "oura.sleep",
+      "oura.activity": "oura.activity",
+      "oura.readiness": "oura.readiness",
+      "oura.heartRate": "oura.heart_rate"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}

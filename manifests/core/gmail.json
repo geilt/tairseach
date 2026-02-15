@@ -1,0 +1,177 @@
+{
+  "manifest_version": "1.0.0",
+  "id": "gmail",
+  "name": "Gmail",
+  "description": "Gmail API integration for reading and sending email.",
+  "version": "0.1.0",
+  "category": "communication",
+  "requires": {
+    "credentials": [{
+      "id": "google_oauth",
+      "provider": "google",
+      "kind": "oauth2",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.settings.basic"
+      ]
+    }]
+  },
+  "tools": [
+    {
+      "name": "gmail.listMessages",
+      "description": "List Gmail messages with optional filters.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string", "description": "OAuth provider. Default: 'google'."},
+          "account": {"type": "string", "description": "OAuth account name."},
+          "query": {"type": "string", "description": "Gmail search query (e.g., 'is:unread')."},
+          "maxResults": {"type": "integer", "description": "Max messages to return."},
+          "max_results": {"type": "integer", "description": "Alias for maxResults."},
+          "labelIds": {"type": "array", "items": {"type": "string"}, "description": "Filter by label IDs."},
+          "label_ids": {"type": "array", "items": {"type": "string"}, "description": "Alias for labelIds."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["messages", "count"],
+        "properties": {
+          "messages": {"type": "array"},
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.getMessage",
+      "description": "Get a Gmail message by ID.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string", "description": "Message ID."},
+          "messageId": {"type": "string", "description": "Alias for id."},
+          "format": {"type": "string", "description": "Response format (full, metadata, minimal, raw)."}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.send",
+      "description": "Send an email via Gmail.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["to", "subject", "body"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "to": {"type": ["string", "array"], "description": "Recipient email(s)."},
+          "subject": {"type": "string"},
+          "body": {"type": "string"},
+          "cc": {"type": "array", "items": {"type": "string"}},
+          "bcc": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gmail.listLabels",
+      "description": "List all Gmail labels.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["labels", "count"],
+        "properties": {
+          "labels": {"type": "array"},
+          "count": {"type": "integer"}
+        }
+      },
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "gmail.modifyMessage",
+      "description": "Modify message labels (add/remove labels).",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"},
+          "messageId": {"type": "string"},
+          "addLabelIds": {"type": "array", "items": {"type": "string"}},
+          "add_label_ids": {"type": "array", "items": {"type": "string"}},
+          "removeLabelIds": {"type": "array", "items": {"type": "string"}},
+          "remove_label_ids": {"type": "array", "items": {"type": "string"}}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"}
+    },
+    {
+      "name": "gmail.trashMessage",
+      "description": "Move a message to trash.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"},
+          "messageId": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {"type": "object"},
+      "annotations": {"destructiveHint": true}
+    },
+    {
+      "name": "gmail.deleteMessage",
+      "description": "Permanently delete a message.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "provider": {"type": "string"},
+          "account": {"type": "string"},
+          "id": {"type": "string"},
+          "messageId": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["deleted"],
+        "properties": {"deleted": {"type": "boolean"}}
+      },
+      "annotations": {"destructiveHint": true}
+    }
+  ],
+  "implementation": {
+    "type": "internal",
+    "module": "proxy.handlers.gmail",
+    "methods": {
+      "gmail.listMessages": "gmail.list_messages",
+      "gmail.getMessage": "gmail.get_message",
+      "gmail.send": "gmail.send",
+      "gmail.listLabels": "gmail.list_labels",
+      "gmail.modifyMessage": "gmail.modify_message",
+      "gmail.trashMessage": "gmail.trash_message",
+      "gmail.deleteMessage": "gmail.delete_message"
+    }
+  },
+  "compatibility": {"mcpProtocol": "2025-03-26", "os": ["macos"]}
+}
